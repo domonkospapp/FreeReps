@@ -43,8 +43,8 @@ input/
 .claude/agents/
 mcp-test/
 
-# Internal docs (not for public repo)
-fix_plan.md
+# Throwaway test artifacts. Planning does not belong here — open work lives in
+# the tracked ROADMAP.md, decisions in DECISIONS.md, postmortems in INCIDENTS.md.
 test-plan.md
 test-report.md
 test-checklist.md
@@ -72,4 +72,3 @@ Pods/
 *.ipa
 *.dSYM.zip
 *.dSYM
-CLAUDE.md

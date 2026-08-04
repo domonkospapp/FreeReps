@@ -362,6 +362,16 @@ No local FreeReps binary needed — `mcp-proxy` handles the transport bridging, 
 | `/api/v1/oura/disconnect` | DELETE | Remove Oura connection |
 | `/api/v1/me` | GET | Current user identity |
 
+## Documents
+
+| File | Holds |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | Conventions and gotchas for working in this repo. |
+| [`ROADMAP.md`](ROADMAP.md) | Open work. |
+| [`DECISIONS.md`](DECISIONS.md) | Decisions taken, with reasoning. |
+| [`INCIDENTS.md`](INCIDENTS.md) | Postmortems. |
+| [`server/specs/`](server/specs/) | Wire formats and payload shapes of the ingest sources. |
+
 ## License
 
 [MIT](LICENSE)

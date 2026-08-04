@@ -1,0 +1,158 @@
+# Decisions
+
+Decisions taken about FreeReps, with the reasoning that led to them. One section
+per decision, newest first.
+
+A decision belongs here once it has been made — including decisions to *not* do
+something, which are the ones most likely to be re-derived from scratch
+otherwise. Open work lives in [`ROADMAP.md`](ROADMAP.md); postmortems live in
+[`INCIDENTS.md`](INCIDENTS.md).
+
+Structure per entry: **decision**, **reasoning**, **trigger to re-open**, and a
+**revisions** log when the decision has changed. A revised decision is edited in
+place with the old form recorded under revisions — the entry is not duplicated.
+
+The entries dated before 2026-08-04 were reconstructed on that date from
+`CLAUDE.md`, from `app/readiness_assessment.md` (removed in the same change,
+last content at commit `2918cef`) and from the commit history. Their reasoning
+is as recorded there; where the record named no alternative, none is claimed.
+
+---
+
+## 2026-08-04 — Forgejo is the source of truth, GitHub is a mirror
+
+**Decided:** 2026-08-04 (commit `3ba3b75`)
+
+**Decision.** `git.coydog-fence.ts.net/meltforce.net/freereps` is `origin` and
+the only push target. `github.com/meltforce/FreeReps` receives a
+`git push --mirror`. Two workflows stay on GitHub — `ios.yml` and `release.yml`
+— because they need a macOS runner and Docker Hub respectively.
+
+**Reasoning.** CI, registry and deploy target are all inside the tailnet; a run
+that starts on GitHub has to reach in from outside. The exception is the Xcode
+build, for which no macOS runner exists on the Forgejo side.
+
+**Consequence that bites.** `--mirror` force-pushes *and* prunes refs absent on
+Forgejo. Anything that must survive on GitHub has to exist on Forgejo first — a
+branch created only on GitHub is deleted at the next sync.
+
+**Trigger to re-open.** A macOS runner becomes available inside the tailnet, or
+the mirror's pruning costs something that outweighs having one source of truth.
+
+---
+
+## 2026-03-25 — Oura and Apple Health are merged at query time, not at ingest
+
+**Decided:** 2026-03-25 (commit `a12046a`, extended by `71785c0`)
+
+**Decision.** Both sources write their own rows. Deduplication happens in the
+query path through a per-user, per-category source priority, configurable in
+Settings. No source is normalized away on ingest.
+
+**Reasoning.** The two sources disagree about the same night in ways that are not
+resolvable at write time: Oura reports one long sleep session, Apple Health
+reports several fragments, and which one is right depends on the metric. Keeping
+both rows preserves the raw data the project is built around, and priority is
+then a display decision that can be changed without re-importing.
+
+**Alternative considered.** Merging on ingest into one canonical row. Rejected
+because it destroys data at the point of no return, and because the correct
+priority differs per metric category.
+
+**Cost accepted.** Every query that reads a metric carries the dedup CTE.
+`67e35d5` added a covering index for it after the dashboard first load became
+measurably slow.
+
+**Trigger to re-open.** A third source arrives whose overlap cannot be expressed
+as a priority order.
+
+---
+
+## 2026-03-15 — Tailscale is the authentication layer; the app adds none
+
+**Decided:** 2026-03-15 (recorded in `app/readiness_assessment.md` § 2, commit `2918cef`)
+
+**Decision.** No application-level authentication — no API keys, no bearer
+tokens. The server runs `tsnet`; iPhone and server must be on the same tailnet,
+which supplies TLS and identity.
+
+**Reasoning.** Adding an application auth layer would duplicate what Tailscale
+already provides and introduce credential management for no gain in the
+deployment model this project targets.
+
+**Alternative considered.** API keys per device. Rejected on the above; it also
+moves a secret onto the phone, which the current design avoids entirely.
+
+**Where it does not hold.** The app accepts an arbitrary host/port/HTTPS
+configuration for local development and App Store review. There, securing the
+endpoint is the operator's responsibility — see the open row about the review
+test server in [`ROADMAP.md`](ROADMAP.md).
+
+**Trigger to re-open.** A deployment that cannot use a tailnet, or multi-user
+support, which is a v1 non-goal below.
+
+---
+
+## 2026-02-19 — Data and visualization, no computed scores
+
+**Decided:** 2026-02-19 (project start; stated in `README.md` § Design Principles)
+
+**Decision.** FreeReps stores raw data and visualizes it. It computes no
+composite scores — no Recovery, no Exertion, no readiness figure. Analysis is
+delegated to Claude through the MCP server.
+
+**Reasoning.** A proprietary score is an opaque function of inputs the user
+cannot inspect, and every such algorithm encodes assumptions that do not
+generalize across bodies. Raw data plus a free correlation explorer plus an LLM
+gives the same answers with the derivation visible.
+
+**Not doing, for the same reason.** Workout planning and automated coaching.
+
+**Trigger to re-open.** A score that can state its inputs and its formula in the
+UI, and that answers a question the correlation explorer cannot.
+
+---
+
+## 2026-02-19 — Non-goals for v1
+
+**Decided:** 2026-02-19 (project start)
+
+**Decision.** Out of scope: a native iOS/watchOS app beyond the sync companion,
+direct Apple HealthKit integration on the server, multi-user support, third-party
+integrations such as Strava, and push notifications.
+
+**Reasoning.** Each of them widens the surface without serving the core loop —
+collect, store, visualize, expose over MCP. Multi-user in particular would reach
+into every query and into the auth decision above, which currently rests on
+"one tailnet, one person".
+
+**Note.** Per-user rows already exist in the schema (metric visibility, source
+priority, Oura tokens). That is per-identity storage behind Tailscale identity,
+not multi-user support: there is no tenancy boundary and no sharing model.
+
+**Trigger to re-open.** A second person actually uses an instance.
+
+---
+
+## 2026-02-19 — Stack: Go, React, PostgreSQL + TimescaleDB
+
+**Decided:** 2026-02-19 (project start; the table this replaces lived in `CLAUDE.md`)
+
+**Decision.**
+
+| Component | Choice | Reasoning |
+|---|---|---|
+| Backend | Go | Single binary with the web UI embedded via `go:embed`, which is what makes the self-hosted deployment one artifact. |
+| Frontend | React 19 + Vite + Tailwind CSS 4 | Chart ecosystem and TypeScript. |
+| Charts | uPlot for time series, Recharts for bar and scatter | uPlot renders the large series without dropping frames; Recharts composes declaratively where the data is small. |
+| Database | PostgreSQL + TimescaleDB | Hypertables and rolling aggregates for time-series queries. |
+| MCP transport | stdio and SSE | stdio for a local Claude Code session, SSE for remote access over the tailnet. |
+| Deployment | Docker Compose | Database and app in one stack, multi-stage build. |
+
+**Consequence that bites.** The `go:embed web/dist` directive means the backend
+does not compile without that directory. Every build path needs the frontend
+built first, or a stub — `.forgejo/workflows/ci.yml` creates the stub explicitly,
+and `server/CLAUDE.md` documents the local equivalent.
+
+**Trigger to re-open.** TimescaleDB licensing or packaging changes, or a chart
+requirement neither library covers.
