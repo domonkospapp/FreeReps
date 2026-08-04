@@ -109,17 +109,23 @@ func (s *Syncer) SyncUser(ctx context.Context, userID int) {
 	// would drop every event that arrives while the cycle is running.
 	cursor := time.Now()
 
-	since := ""
 	state, err := s.db.GetHevySyncState(ctx, userID)
 	if err != nil {
 		s.logImport(ctx, userID, start, stats, fmt.Errorf("getting sync state: %w", err))
 		return
 	}
-	if state != nil {
-		since = state.LastEventAt.Add(-resyncOverlap).UTC().Format(time.RFC3339)
-	}
 
-	if err := s.syncEvents(ctx, userID, creds, since, stats); err != nil {
+	// First run walks the full workout list; every later run takes the delta from
+	// the event feed. The feed is explicitly a cache-update channel and returns
+	// nothing for a history that predates the API key, so using it for the
+	// backfill silently imports zero workouts.
+	if state == nil {
+		err = s.backfillWorkouts(ctx, userID, creds, stats)
+	} else {
+		since := state.LastEventAt.Add(-resyncOverlap).UTC().Format(time.RFC3339)
+		err = s.syncEvents(ctx, userID, creds, since, stats)
+	}
+	if err != nil {
 		s.logImport(ctx, userID, start, stats, err)
 		return
 	}
@@ -132,6 +138,31 @@ func (s *Syncer) SyncUser(ctx context.Context, userID int) {
 	s.logImport(ctx, userID, start, stats, nil)
 }
 
+// backfillWorkouts walks the full workout list on the first sync.
+func (s *Syncer) backfillWorkouts(ctx context.Context, userID int, creds *storage.HevyCredentials, stats *syncStats) error {
+	for page := 1; page <= maxPages; page++ {
+		resp, err := s.client.GetWorkouts(ctx, creds.APIKey, page)
+		if err != nil {
+			return fmt.Errorf("fetching workouts page %d: %w", page, err)
+		}
+
+		s.log.Info("hevy backfill page",
+			"page", resp.Page, "page_count", resp.PageCount, "workouts", len(resp.Workouts))
+
+		for _, w := range resp.Workouts {
+			if err := s.storeWorkout(ctx, userID, creds, w, stats); err != nil {
+				stats.errors = append(stats.errors, err.Error())
+				s.log.Warn("hevy backfill workout failed", "workout_id", w.ID, "error", err)
+			}
+		}
+
+		if resp.PageCount <= page {
+			return nil
+		}
+	}
+	return fmt.Errorf("workout list exceeded %d pages", maxPages)
+}
+
 // syncEvents walks every page of the event feed and applies each event.
 func (s *Syncer) syncEvents(ctx context.Context, userID int, creds *storage.HevyCredentials, since string, stats *syncStats) error {
 	for page := 1; page <= maxPages; page++ {
@@ -139,6 +170,9 @@ func (s *Syncer) syncEvents(ctx context.Context, userID int, creds *storage.Hevy
 		if err != nil {
 			return fmt.Errorf("fetching workout events page %d: %w", page, err)
 		}
+
+		s.log.Info("hevy event page",
+			"page", resp.Page, "page_count", resp.PageCount, "events", len(resp.Events), "since", since)
 
 		for _, ev := range resp.Events {
 			if err := s.applyEvent(ctx, userID, creds, ev, stats); err != nil {
@@ -176,46 +210,51 @@ func (s *Syncer) applyEvent(ctx context.Context, userID int, creds *storage.Hevy
 		if ev.Workout == nil {
 			return fmt.Errorf("updated event without workout")
 		}
-		w := *ev.Workout
-		stats.workoutsReceived++
-
-		startTime, err := WorkoutStart(w)
-		if err != nil {
-			return err
-		}
-		// Workouts before the cutoff are ignored. Without this an Alpha history
-		// later imported into Hevy would flow back and count a second time
-		// against the rows already in workout_sets.
-		if startTime.Before(creds.SyncFrom) {
-			stats.workoutsSkipped++
-			return nil
-		}
-
-		rows, err := MapWorkout(w, userID)
-		if err != nil {
-			return err
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-
-		// Delete before insert. ON CONFLICT DO NOTHING alone would discard a
-		// correction made in the app, and a set removed there would survive.
-		if _, err := s.db.DeleteWorkoutSetsByExternalID(ctx, userID, SourceName, w.ID); err != nil {
-			return err
-		}
-		inserted, err := s.db.InsertWorkoutSets(ctx, rows)
-		if err != nil {
-			return err
-		}
-		stats.setsReceived += len(rows)
-		stats.setsInserted += inserted
-		stats.workoutsInserted++
-		return nil
+		return s.storeWorkout(ctx, userID, creds, *ev.Workout, stats)
 
 	default:
 		return fmt.Errorf("unknown event type %q", ev.Type)
 	}
+}
+
+// storeWorkout writes one workout's sets, replacing whatever was stored for it
+// before. Shared by the backfill and the event path.
+func (s *Syncer) storeWorkout(ctx context.Context, userID int, creds *storage.HevyCredentials, w Workout, stats *syncStats) error {
+	stats.workoutsReceived++
+
+	startTime, err := WorkoutStart(w)
+	if err != nil {
+		return err
+	}
+	// Workouts before the cutoff are ignored. Without this an Alpha history
+	// later imported into Hevy would flow back and count a second time against
+	// the rows already in workout_sets.
+	if startTime.Before(creds.SyncFrom) {
+		stats.workoutsSkipped++
+		return nil
+	}
+
+	rows, err := MapWorkout(w, userID)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	// Delete before insert. ON CONFLICT DO NOTHING alone would discard a
+	// correction made in the app, and a set removed there would survive.
+	if _, err := s.db.DeleteWorkoutSetsByExternalID(ctx, userID, SourceName, w.ID); err != nil {
+		return err
+	}
+	inserted, err := s.db.InsertWorkoutSets(ctx, rows)
+	if err != nil {
+		return err
+	}
+	stats.setsReceived += len(rows)
+	stats.setsInserted += inserted
+	stats.workoutsInserted++
+	return nil
 }
 
 // logImport writes an import log entry for one Hevy sync cycle.

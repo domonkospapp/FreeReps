@@ -115,6 +115,25 @@ func (c *Client) GetWorkoutEvents(ctx context.Context, apiKey, since string, pag
 	return &result, nil
 }
 
+// GetWorkouts fetches one page of the full workout list, newest first. Used for
+// the initial backfill, where the event feed returns nothing.
+func (c *Client) GetWorkouts(ctx context.Context, apiKey string, page int) (*PaginatedWorkouts, error) {
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("pageSize", strconv.Itoa(maxPageSize))
+
+	body, err := c.get(ctx, "/v1/workouts", apiKey, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result PaginatedWorkouts
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decoding workouts: %w", err)
+	}
+	return &result, nil
+}
+
 // GetUserInfo returns the authenticated user's profile. The sync does not need
 // it; the credentials handler uses it to verify an API key before storing it.
 func (c *Client) GetUserInfo(ctx context.Context, apiKey string) (*UserInfo, error) {

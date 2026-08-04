@@ -69,6 +69,18 @@ type PaginatedWorkoutEvents struct {
 	Events    []WorkoutEvent `json:"events"`
 }
 
+// PaginatedWorkouts is the response of GET /v1/workouts.
+//
+// This endpoint carries the initial backfill. The event feed does not: its own
+// description states it exists so a client can keep an existing local cache up
+// to date "without having to fetch the entire list of workouts", and querying it
+// without a `since` bound returns nothing for a history that predates the key.
+type PaginatedWorkouts struct {
+	Page      int       `json:"page"`
+	PageCount int       `json:"page_count"`
+	Workouts  []Workout `json:"workouts"`
+}
+
 // UserInfo is the response of GET /v1/user/info, used to validate an API key
 // before it is stored.
 type UserInfo struct {

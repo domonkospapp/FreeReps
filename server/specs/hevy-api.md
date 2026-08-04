@@ -18,8 +18,17 @@ Derived from the OpenAPI 3.0 specification served at
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/v1/workouts/events` | Delta feed; the only endpoint the sync polls |
+| `GET` | `/v1/workouts` | Full list; carries the initial backfill |
+| `GET` | `/v1/workouts/events` | Delta feed; every sync after the first |
 | `GET` | `/v1/user/info` | Validates an API key before it is stored |
+
+**The event feed does not serve the backfill.** Its own summary says it exists so
+a client can keep an existing local cache up to date "without having to fetch the
+entire list of workouts". Called with a fresh API key and no `since` bound it
+returns zero events even when the account holds workouts — the first deployment
+imported nothing while a logged test workout sat in the account, and the import
+log reported success because no error had occurred. The first sync therefore
+walks `/v1/workouts`, and only later runs use the feed.
 
 Not consumed yet, relevant for later stages: `/v1/exercise_templates` (muscle
 groups and equipment per exercise, `pageSize` up to 100), `/v1/routines`,
@@ -31,10 +40,16 @@ Both `/v1/workouts` and `/v1/workouts/events` cap `pageSize` at **10**; page
 numbering starts at 1. The response carries `page` and `page_count`; iteration
 stops once `page_count <= page`. `/v1/exercise_templates` allows up to 100.
 
+## `GET /v1/workouts`
+
+Query parameters: `page`, `pageSize`. Returns `{ page, page_count, workouts[] }`
+with the same workout objects the event feed carries, newest first.
+
 ## `GET /v1/workouts/events`
 
-Query parameters: `page`, `pageSize`, `since` (ISO 8601). Omitting `since`
-returns the full history. Events are ordered newest first.
+Query parameters: `page`, `pageSize`, `since` (ISO 8601). Events are ordered
+newest first and cover changes made after the key started observing — see the
+note above on why this is not a backfill path.
 
 ```json
 {

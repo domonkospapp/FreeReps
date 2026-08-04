@@ -115,6 +115,41 @@ func TestGetWorkoutEventsUnauthorized(t *testing.T) {
 	}
 }
 
+// The first sync must not use the event feed: its own documentation says it
+// exists to update an existing cache, and against a fresh key it returns nothing
+// even when the account has workouts — which is how the first deployment
+// imported zero sets while a logged test workout sat in the account.
+func TestGetWorkoutsUsesTheListEndpoint(t *testing.T) {
+	var gotPath, gotPageSize string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotPageSize = r.URL.Query().Get("pageSize")
+		_, _ = w.Write([]byte(`{"page":1,"page_count":2,"workouts":[
+		  {"id":"w1","title":"Push","start_time":"2026-08-04T09:00:00Z","end_time":"2026-08-04T10:00:00Z","exercises":[]}
+		]}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	resp, err := c.GetWorkouts(context.Background(), "k", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/v1/workouts" {
+		t.Errorf("path = %q, want /v1/workouts", gotPath)
+	}
+	if gotPageSize != "10" {
+		t.Errorf("pageSize = %q, want 10", gotPageSize)
+	}
+	if len(resp.Workouts) != 1 || resp.Workouts[0].ID != "w1" {
+		t.Errorf("workouts = %+v, want one entry w1", resp.Workouts)
+	}
+	if resp.PageCount != 2 {
+		t.Errorf("page_count = %d, want 2 so the caller keeps paging", resp.PageCount)
+	}
+}
+
 func TestGetUserInfo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/user/info" {
