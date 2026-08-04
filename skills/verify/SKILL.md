@@ -64,6 +64,29 @@ A green CI run on `main` continues into build and deploy to `freereps-lxc`. A
 failure after the build stage means `:edge` may be in a broken state; the ntfy
 alert in `notify-deploy-failure` carries the run URL.
 
+## Reading a CI log from the shell
+
+Three calls, and the IDs are not interchangeable. `/actions/tasks` returns a
+*task* id; the logs endpoint wants a *job* id, and passing the task id there
+returns 404 — which reads like "this instance serves no logs" and is not that.
+
+```bash
+F=https://git.coydog-fence.ts.net/api/v1/repos/meltforce.net/freereps
+curl -sS "$F/actions/runs?limit=5"        # -> run id, newest first
+curl -sS "$F/actions/runs/<run_id>/jobs"  # -> job id per job name
+curl -sSL "$F/actions/jobs/<job_id>/logs" # -> plain text
+```
+
+The repo is public on Forgejo, so all three work without a token. `swagger.v1.json`
+at the instance root lists the routes the running version actually has — check
+there before concluding an endpoint is missing.
+
+**A silent step proves nothing.** `check-docs.sh` prints nothing when everything
+passes, so a green `documents` job produces no log line saying it ran. What the
+log does show is `/usr/bin/python3` from the `Ensure python3` step; without that
+line, `has_module` would have returned false and the language sweep would have
+printed `language sweep skipped` while the job still went green.
+
 ## Tests
 
 A new test carries a doc comment saying **why the test exists** — which failure
