@@ -162,28 +162,84 @@ CREATE UNIQUE INDEX idx_workout_routes_dedup
 
 ### `workout_sets` (Regular)
 
-Alpha Progression set/rep/weight data.
+Set/rep/weight data. Two sources write here: the Alpha Progression CSV import
+and the Hevy sync.
 
 ```sql
 CREATE TABLE workout_sets (
-    id                  BIGSERIAL   PRIMARY KEY,
-    user_id             INTEGER     NOT NULL DEFAULT 1,
-    session_name        TEXT        NOT NULL,
-    session_date        TIMESTAMPTZ NOT NULL,
-    session_duration    TEXT,
-    exercise_number     INTEGER     NOT NULL,
-    exercise_name       TEXT        NOT NULL,
-    equipment           TEXT,
-    target_reps         INTEGER,
-    is_warmup           BOOLEAN     NOT NULL DEFAULT FALSE,
-    set_number          INTEGER     NOT NULL,
-    weight_kg           DOUBLE PRECISION,
-    is_bodyweight_plus  BOOLEAN     NOT NULL DEFAULT FALSE,
-    reps                INTEGER     NOT NULL,
-    rir                 DOUBLE PRECISION,
-    UNIQUE (user_id, session_date, exercise_number, set_number, is_warmup)
+    id                   BIGSERIAL   PRIMARY KEY,
+    user_id              INTEGER     NOT NULL DEFAULT 1,
+    source               TEXT        NOT NULL DEFAULT '',
+    external_id          TEXT        NOT NULL DEFAULT '',
+    routine_id           TEXT        NOT NULL DEFAULT '',
+    session_name         TEXT        NOT NULL,
+    session_date         TIMESTAMPTZ NOT NULL,
+    session_end          TIMESTAMPTZ,
+    session_duration     TEXT,
+    exercise_number      INTEGER     NOT NULL,
+    exercise_name        TEXT        NOT NULL,
+    exercise_template_id TEXT        NOT NULL DEFAULT '',
+    exercise_notes       TEXT        NOT NULL DEFAULT '',
+    equipment            TEXT,
+    target_reps          INTEGER,
+    is_warmup            BOOLEAN     NOT NULL DEFAULT FALSE,
+    set_type             TEXT        NOT NULL DEFAULT 'normal',
+    set_number           INTEGER     NOT NULL,
+    superset_id          INTEGER,
+    weight_kg            DOUBLE PRECISION,
+    is_bodyweight_plus   BOOLEAN     NOT NULL DEFAULT FALSE,
+    reps                 INTEGER     NOT NULL,
+    rir                  DOUBLE PRECISION,
+    distance_m           DOUBLE PRECISION,
+    duration_sec         DOUBLE PRECISION,
+    custom_metric        DOUBLE PRECISION,
+    CONSTRAINT workout_sets_source_natural_key
+        UNIQUE (user_id, source, session_date, exercise_number, set_number, is_warmup)
+);
+
+CREATE INDEX idx_workout_sets_source_external ON workout_sets (source, external_id);
+```
+
+`source` is `Alpha Progression` or `Hevy`. Columns each source leaves empty:
+Alpha has no `external_id`, `routine_id`, `exercise_template_id` or
+`superset_id`; Hevy has no `equipment`, `target_reps` or `is_bodyweight_plus`,
+because those are properties of the exercise template or the routine rather than
+of a logged set.
+
+`set_type` holds Hevy's raw value (`normal`, `warmup`, `failure`, `dropset`);
+`is_warmup` stays the column every aggregate query filters on.
+
+`rir` is Reps in Reserve. Hevy reports RPE, converted on ingest as
+`rir = 10 - rpe`. The value `-1` means the set was not rated.
+
+### `hevy_credentials` (Regular)
+
+```sql
+CREATE TABLE hevy_credentials (
+    user_id    INTEGER     NOT NULL PRIMARY KEY REFERENCES users(id),
+    api_key    TEXT        NOT NULL,
+    sync_from  DATE        NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
+
+`sync_from` bounds the ingest: workouts that started before this date are
+discarded, so an Alpha history later uploaded to Hevy cannot flow back and count
+a second time.
+
+### `hevy_sync_state` (Regular)
+
+```sql
+CREATE TABLE hevy_sync_state (
+    user_id       INTEGER     NOT NULL PRIMARY KEY REFERENCES users(id),
+    last_event_at TIMESTAMPTZ NOT NULL,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+`last_event_at` is the `since` parameter of the next event fetch, minus a one
+hour overlap.
 
 ### `metric_allowlist` (Regular)
 

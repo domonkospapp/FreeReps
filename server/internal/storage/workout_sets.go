@@ -9,6 +9,17 @@ import (
 	"github.com/claude/freereps/internal/models"
 )
 
+// workoutSetColumns is the insert column list; its length drives the parameter
+// arithmetic in InsertWorkoutSets.
+var workoutSetColumns = []string{
+	"user_id", "source", "external_id", "routine_id",
+	"session_name", "session_date", "session_end", "session_duration",
+	"exercise_number", "exercise_name", "exercise_template_id", "exercise_notes",
+	"equipment", "target_reps", "is_warmup", "set_type", "set_number", "superset_id",
+	"weight_kg", "is_bodyweight_plus", "reps", "rir",
+	"distance_m", "duration_sec", "custom_metric",
+}
+
 // DeleteWorkoutSets removes all sets for a given session date and user, enabling clean re-imports.
 func (db *DB) DeleteWorkoutSets(ctx context.Context, sessionDate time.Time, userID int) error {
 	_, err := db.Pool.Exec(ctx,
@@ -17,28 +28,59 @@ func (db *DB) DeleteWorkoutSets(ctx context.Context, sessionDate time.Time, user
 	return err
 }
 
-// InsertWorkoutSets batch-inserts Alpha Progression set data. Returns count inserted.
+// DeleteWorkoutSetsByExternalID removes every set belonging to one source-side
+// workout. The Hevy sync calls this before re-inserting an updated workout:
+// ON CONFLICT DO NOTHING alone would silently discard a correction made in the
+// app, and a deleted set would survive forever.
+func (db *DB) DeleteWorkoutSetsByExternalID(ctx context.Context, userID int, source, externalID string) (int64, error) {
+	if externalID == "" {
+		return 0, fmt.Errorf("external_id must not be empty")
+	}
+	tag, err := db.Pool.Exec(ctx,
+		`DELETE FROM workout_sets WHERE user_id = $1 AND source = $2 AND external_id = $3`,
+		userID, source, externalID)
+	if err != nil {
+		return 0, fmt.Errorf("deleting workout sets by external id: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// InsertWorkoutSets batch-inserts set data. Returns count inserted.
 func (db *DB) InsertWorkoutSets(ctx context.Context, rows []models.WorkoutSetRow) (int64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
 
-	query := `INSERT INTO workout_sets (user_id, session_name, session_date, session_duration,
-		exercise_number, exercise_name, equipment, target_reps, is_warmup, set_number,
-		weight_kg, is_bodyweight_plus, reps, rir) VALUES `
-	args := make([]any, 0, len(rows)*14)
+	n := len(workoutSetColumns)
+	query := `INSERT INTO workout_sets (` + strings.Join(workoutSetColumns, ", ") + `) VALUES `
+	args := make([]any, 0, len(rows)*n)
 	valueStrings := make([]string, 0, len(rows))
 
 	for i, r := range rows {
-		base := i * 14
-		valueStrings = append(valueStrings, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
-			base+8, base+9, base+10, base+11, base+12, base+13, base+14,
-		))
-		args = append(args, r.UserID, r.SessionName, r.SessionDate, r.SessionDuration,
-			r.ExerciseNumber, r.ExerciseName, r.Equipment, r.TargetReps,
-			r.IsWarmup, r.SetNumber, r.WeightKg, r.IsBodyweightPlus, r.Reps, r.RIR)
+		base := i * n
+		placeholders := make([]string, n)
+		for j := range placeholders {
+			placeholders[j] = fmt.Sprintf("$%d", base+j+1)
+		}
+		valueStrings = append(valueStrings, "("+strings.Join(placeholders, ",")+")")
+
+		source := r.Source
+		if source == "" {
+			source = "Alpha Progression"
+		}
+		setType := r.SetType
+		if setType == "" {
+			setType = "normal"
+		}
+
+		args = append(args,
+			r.UserID, source, r.ExternalID, r.RoutineID,
+			r.SessionName, r.SessionDate, r.SessionEnd, r.SessionDuration,
+			r.ExerciseNumber, r.ExerciseName, r.ExerciseTemplateID, r.ExerciseNotes,
+			r.Equipment, r.TargetReps, r.IsWarmup, setType, r.SetNumber, r.SupersetID,
+			r.WeightKg, r.IsBodyweightPlus, r.Reps, r.RIR,
+			r.DistanceM, r.DurationSec, r.CustomMetric,
+		)
 	}
 
 	query += strings.Join(valueStrings, ",") + " ON CONFLICT DO NOTHING"
@@ -52,9 +94,12 @@ func (db *DB) InsertWorkoutSets(ctx context.Context, rows []models.WorkoutSetRow
 
 // QueryWorkoutSets retrieves workout sets in a date range, optionally filtered by exercise name.
 func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID int, exerciseFilter string) ([]models.WorkoutSetRow, error) {
-	query := `SELECT user_id, session_name, session_date, session_duration,
-		 exercise_number, exercise_name, equipment, target_reps,
-		 is_warmup, set_number, weight_kg, is_bodyweight_plus, reps, rir
+	query := `SELECT user_id, source, external_id, routine_id,
+		 session_name, session_date, session_end, session_duration,
+		 exercise_number, exercise_name, exercise_template_id, exercise_notes,
+		 equipment, target_reps, is_warmup, set_type, set_number, superset_id,
+		 weight_kg, is_bodyweight_plus, reps, rir,
+		 distance_m, duration_sec, custom_metric
 		 FROM workout_sets
 		 WHERE session_date >= $1 AND session_date < $2 AND user_id = $3`
 	args := []any{start, end, userID}
@@ -72,9 +117,12 @@ func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID
 	var result []models.WorkoutSetRow
 	for rows.Next() {
 		var r models.WorkoutSetRow
-		if err := rows.Scan(&r.UserID, &r.SessionName, &r.SessionDate, &r.SessionDuration,
-			&r.ExerciseNumber, &r.ExerciseName, &r.Equipment, &r.TargetReps,
-			&r.IsWarmup, &r.SetNumber, &r.WeightKg, &r.IsBodyweightPlus, &r.Reps, &r.RIR); err != nil {
+		if err := rows.Scan(&r.UserID, &r.Source, &r.ExternalID, &r.RoutineID,
+			&r.SessionName, &r.SessionDate, &r.SessionEnd, &r.SessionDuration,
+			&r.ExerciseNumber, &r.ExerciseName, &r.ExerciseTemplateID, &r.ExerciseNotes,
+			&r.Equipment, &r.TargetReps, &r.IsWarmup, &r.SetType, &r.SetNumber, &r.SupersetID,
+			&r.WeightKg, &r.IsBodyweightPlus, &r.Reps, &r.RIR,
+			&r.DistanceM, &r.DurationSec, &r.CustomMetric); err != nil {
 			return nil, fmt.Errorf("scanning workout set: %w", err)
 		}
 		result = append(result, r)
@@ -82,31 +130,36 @@ func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID
 	return result, rows.Err()
 }
 
-// AlphaSessionInfo summarizes a distinct Alpha Progression session.
-type AlphaSessionInfo struct {
+// SetSessionInfo summarizes a distinct strength training session in workout_sets.
+type SetSessionInfo struct {
+	Source          string
+	ExternalID      string
 	SessionName     string
 	SessionDate     time.Time
+	SessionEnd      *time.Time
 	SessionDuration string
 }
 
-// QueryAlphaSessions returns one row per distinct Alpha Progression session in a time range.
-func (db *DB) QueryAlphaSessions(ctx context.Context, start, end time.Time, userID int) ([]AlphaSessionInfo, error) {
+// QuerySetSessions returns one row per distinct strength session in a time range,
+// across all sources. QueryWorkoutsMerged turns these into workout entries.
+func (db *DB) QuerySetSessions(ctx context.Context, start, end time.Time, userID int) ([]SetSessionInfo, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT DISTINCT session_name, session_date, session_duration
+		`SELECT DISTINCT source, external_id, session_name, session_date, session_end, session_duration
 		 FROM workout_sets
 		 WHERE session_date >= $1 AND session_date < $2 AND user_id = $3
 		 ORDER BY session_date DESC`,
 		start, end, userID)
 	if err != nil {
-		return nil, fmt.Errorf("querying alpha sessions: %w", err)
+		return nil, fmt.Errorf("querying set sessions: %w", err)
 	}
 	defer rows.Close()
 
-	var result []AlphaSessionInfo
+	var result []SetSessionInfo
 	for rows.Next() {
-		var s AlphaSessionInfo
-		if err := rows.Scan(&s.SessionName, &s.SessionDate, &s.SessionDuration); err != nil {
-			return nil, fmt.Errorf("scanning alpha session: %w", err)
+		var s SetSessionInfo
+		if err := rows.Scan(&s.Source, &s.ExternalID, &s.SessionName, &s.SessionDate,
+			&s.SessionEnd, &s.SessionDuration); err != nil {
+			return nil, fmt.Errorf("scanning set session: %w", err)
 		}
 		result = append(result, s)
 	}

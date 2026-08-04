@@ -87,34 +87,51 @@ type WorkoutHRRow struct {
 
 // WorkoutRouteRow is a row for the workout_routes table.
 type WorkoutRouteRow struct {
-	Time                time.Time
-	WorkoutID           uuid.UUID
-	UserID              int
-	Latitude            float64
-	Longitude           float64
-	Altitude            *float64
-	Speed               *float64
-	Course              *float64
-	HorizontalAccuracy  *float64
-	VerticalAccuracy    *float64
+	Time               time.Time
+	WorkoutID          uuid.UUID
+	UserID             int
+	Latitude           float64
+	Longitude          float64
+	Altitude           *float64
+	Speed              *float64
+	Course             *float64
+	HorizontalAccuracy *float64
+	VerticalAccuracy   *float64
 }
 
 // WorkoutSetRow is a row for the workout_sets table.
+//
+// Two sources write here. Alpha Progression fills Equipment, TargetReps and
+// IsBodyweightPlus and leaves the Hevy-specific fields empty; Hevy fills
+// ExternalID, RoutineID, ExerciseTemplateID, SetType and SupersetID and leaves
+// the Alpha-specific ones empty. Source distinguishes them and is part of the
+// natural key.
 type WorkoutSetRow struct {
-	UserID           int
-	SessionName      string
-	SessionDate      time.Time
-	SessionDuration  string
-	ExerciseNumber   int
-	ExerciseName     string
-	Equipment        string
-	TargetReps       int
-	IsWarmup         bool
-	SetNumber        int
-	WeightKg         float64
-	IsBodyweightPlus bool
-	Reps             int
-	RIR              float64
+	UserID             int
+	Source             string
+	ExternalID         string
+	RoutineID          string
+	SessionName        string
+	SessionDate        time.Time
+	SessionEnd         *time.Time
+	SessionDuration    string
+	ExerciseNumber     int
+	ExerciseName       string
+	ExerciseTemplateID string
+	ExerciseNotes      string
+	Equipment          string
+	TargetReps         int
+	IsWarmup           bool
+	SetType            string
+	SetNumber          int
+	SupersetID         *int
+	WeightKg           float64
+	IsBodyweightPlus   bool
+	Reps               int
+	RIR                float64
+	DistanceM          *float64
+	DurationSec        *float64
+	CustomMetric       *float64
 }
 
 // ECGRecordingRow is a row for the ecg_recordings table.

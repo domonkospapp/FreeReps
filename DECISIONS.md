@@ -19,6 +19,68 @@ is as recorded there; where the record named no alternative, none is claimed.
 
 ---
 
+## 2026-08-04 — Hevy replaces Alpha Progression, ingested by polling the event feed
+
+**Decided:** 2026-08-04
+
+**Decision.** Hevy Pro replaces Alpha Progression as the training logger. The
+server ingests it by polling `GET /v1/workouts/events?since=` on a ticker, in the
+same shape as the Oura sync. Hevy's webhook is not used.
+
+**Reasoning.** The Alpha path was a manual CSV upload and it did not hold: on the
+day of this decision the newest row in `workout_sets` dated 2026-05-16 while
+`workouts` carried strength sessions from Apple Health up to 2026-06-05. Hevy's
+event feed delivers updates *and* deletions since a timestamp, which makes an
+outbound poll idempotent and lets a correction made in the app reach the server.
+
+**Alternative considered.** Liftosaur, whose Liftoscript programs carry the
+progression rule inside the plan, and whose API can validate a generated program
+before it goes live. Rejected because its history format needs a parser where
+Hevy returns JSON, because it has no delta endpoint, and because RPE per set —
+which the existing intensity analysis depends on — is documented for Hevy and was
+not confirmed for Liftosaur.
+
+**Alternative considered.** Hevy's webhook, which POSTs to a registered URL when
+a workout is saved. Rejected because it requires a publicly reachable endpoint
+with its own authentication, which would reopen the 2026-03-15 decision below,
+and because its payload carries only a workout id — the data still has to be
+fetched outbound. Its only gain is latency.
+
+**Cost accepted.** Hevy routines carry no progression logic, so load progression
+between two planning passes is carried by rep ranges and the previous-session
+values the app displays, not by the plan itself.
+
+**Trigger to re-open.** Hevy drops the event feed, RPE stops arriving per set, or
+the progression gap turns out to need automation after all.
+
+---
+
+## 2026-08-04 — FreeReps stays the system of record; planning lives outside it
+
+**Decided:** 2026-08-04
+
+**Decision.** Training planning and analysis run in a separate Claude Code
+project that talks to the FreeReps MCP server and to a Hevy MCP server. FreeReps
+gains no planning logic, no prescription engine and no writes back into the
+training app.
+
+**Reasoning.** This keeps the 2026-02-19 decision intact — data and
+visualization, no computed scores, no coaching. It also puts the split where the
+data is: analysis belongs on FreeReps, which is the only place that sees training
+alongside sleep, HRV and readiness. The current plan exists only in Hevy, so
+reading and writing it belongs there.
+
+**Consequence for the MCP setup.** Both servers offer overlapping read tools —
+`hevy-mcp` ships `get-training-summary` next to the FreeReps `get_training_summary`.
+The planning project denies the Hevy analysis tools so evaluation cannot
+accidentally run on training data alone, without the recovery context.
+
+**Trigger to re-open.** A prescription that needs recovery data as an input — a
+deload triggered by a measured HRV decline rather than by a calendar week — since
+no external service can compute that.
+
+---
+
 ## 2026-08-04 — Forgejo is the source of truth, GitHub is a mirror
 
 **Decided:** 2026-08-04 (commit `3ba3b75`)

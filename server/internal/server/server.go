@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/claude/freereps/internal/hevy"
 	"github.com/claude/freereps/internal/ingest/alpha"
 	"github.com/claude/freereps/internal/ingest/health"
 	freerepsmcp "github.com/claude/freereps/internal/mcp"
@@ -31,6 +32,9 @@ type Server struct {
 	ouraTokenMgr *oura.TokenManager
 	ouraSyncer   *oura.Syncer
 
+	// Hevy integration (nil if not wired up)
+	hevySyncer *hevy.Syncer
+
 	// HAE TCP import state (only one import at a time)
 	importMu     sync.Mutex
 	activeImport *haeImportState
@@ -41,6 +45,12 @@ type Server struct {
 func (s *Server) SetOura(tm *oura.TokenManager, syncer *oura.Syncer) {
 	s.ouraTokenMgr = tm
 	s.ouraSyncer = syncer
+}
+
+// SetHevy configures the Hevy integration.
+// Must be called before the server starts handling requests.
+func (s *Server) SetHevy(syncer *hevy.Syncer) {
+	s.hevySyncer = syncer
 }
 
 // Version is set by main to make it available to handlers.
@@ -169,6 +179,14 @@ func (s *Server) routes() {
 			r.Delete("/disconnect", s.handleOuraDisconnect)
 		})
 		r.Get("/oura/callback", s.handleOuraCallback)
+
+		// Hevy integration
+		r.Route("/api/v1/hevy", func(r chi.Router) {
+			r.Get("/status", s.handleHevyStatus)
+			r.Put("/credentials", s.handleHevyCredentials)
+			r.Post("/sync", s.handleHevySync)
+			r.Delete("/disconnect", s.handleHevyDisconnect)
+		})
 
 		// HAE TCP import
 		r.Post("/api/v1/import/hae-tcp/check", s.handleCheckHAE)

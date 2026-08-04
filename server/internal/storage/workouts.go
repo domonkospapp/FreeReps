@@ -15,6 +15,34 @@ import (
 // alphaWorkoutNamespace is the UUID namespace for deterministic synthetic Alpha workout IDs.
 var alphaWorkoutNamespace = uuid.MustParse("7ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
+// hevyWorkoutNamespace is the UUID namespace for deterministic synthetic Hevy workout IDs.
+// Unlike Alpha, the payload is Hevy's own workout id, so the synthetic id stays
+// stable even when the session is renamed or its start time is corrected.
+var hevyWorkoutNamespace = uuid.MustParse("8ba7b810-9dad-11d1-80b4-00c04fd430c8")
+
+// syntheticWorkoutName is the workout type reported for sessions that exist only
+// in workout_sets. The frontend type filters match on this value.
+const syntheticWorkoutName = "Traditional Strength Training"
+
+// syntheticWorkoutID derives the deterministic id for a strength session that has
+// no row in the workouts table.
+func syntheticWorkoutID(s SetSessionInfo) uuid.UUID {
+	if s.Source == "Hevy" && s.ExternalID != "" {
+		return uuid.NewSHA1(hevyWorkoutNamespace, []byte("hevy:workout:"+s.ExternalID))
+	}
+	return uuid.NewSHA1(alphaWorkoutNamespace,
+		[]byte("alpha:"+s.SessionDate.Format(time.RFC3339)+":"+s.SessionName))
+}
+
+// syntheticWorkoutEnd returns the session end. Hevy reports it directly; Alpha
+// only carries a duration string that has to be parsed and added to the start.
+func syntheticWorkoutEnd(s SetSessionInfo) time.Time {
+	if s.SessionEnd != nil && !s.SessionEnd.IsZero() {
+		return *s.SessionEnd
+	}
+	return s.SessionDate.Add(parseAlphaDuration(s.SessionDuration))
+}
+
 // InsertWorkout inserts a workout row. Returns true if inserted, false if duplicate.
 func (db *DB) InsertWorkout(ctx context.Context, row models.WorkoutRow) (bool, error) {
 	tag, err := db.Pool.Exec(ctx,
@@ -240,17 +268,22 @@ func scanWorkoutListRows(rows interface {
 	return result, rows.Err()
 }
 
-// QueryWorkoutsMerged returns workouts enriched with Alpha Progression session names.
-// Apple/Oura workouts near an Alpha session get the session name for display.
-// Alpha sessions with no nearby workout get a synthetic workout entry.
+// QueryWorkoutsMerged returns workouts enriched with strength session names from
+// workout_sets. Apple/Oura workouts near such a session get its name for display;
+// sessions with no nearby workout get a synthetic workout entry.
+//
+// Neither Alpha Progression nor Hevy writes rows into the workouts table — that
+// was tried for Alpha and reverted in commit 411f4c1, because the same training
+// session already arrives from Apple Health with heart rate data and the two
+// rows cannot be deduplicated reliably by start time.
 func (db *DB) QueryWorkoutsMerged(ctx context.Context, start, end time.Time, userID int, nameFilter string) ([]models.WorkoutRow, error) {
 	workouts, err := db.QueryWorkouts(ctx, start, end, userID, nameFilter)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch Alpha sessions with 2h padding to catch sessions just outside the range.
-	alphaSessions, err := db.QueryAlphaSessions(ctx, start.Add(-2*time.Hour), end.Add(2*time.Hour), userID)
+	// Fetch sessions with 2h padding to catch sessions just outside the range.
+	alphaSessions, err := db.QuerySetSessions(ctx, start.Add(-2*time.Hour), end.Add(2*time.Hour), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,8 +292,8 @@ func (db *DB) QueryWorkoutsMerged(ctx context.Context, start, end time.Time, use
 	}
 
 	// Match Alpha sessions to workouts by nearest time within ±2h.
-	matched := make(map[int]bool)    // index into workouts
-	alphaUsed := make(map[int]bool)  // index into alphaSessions
+	matched := make(map[int]bool)   // index into workouts
+	alphaUsed := make(map[int]bool) // index into alphaSessions
 
 	type pair struct {
 		wi, ai int
@@ -289,7 +322,7 @@ func (db *DB) QueryWorkoutsMerged(ctx context.Context, start, end time.Time, use
 		alphaUsed[p.ai] = true
 	}
 
-	// Create synthetic workouts for unmatched Alpha sessions.
+	// Create synthetic workouts for unmatched sessions.
 	for ai, a := range alphaSessions {
 		if alphaUsed[ai] {
 			continue
@@ -299,18 +332,22 @@ func (db *DB) QueryWorkoutsMerged(ctx context.Context, start, end time.Time, use
 			continue
 		}
 		// Skip if name filter is set and doesn't match the synthetic base name.
-		if nameFilter != "" && nameFilter != "Traditional Strength Training" {
+		if nameFilter != "" && nameFilter != syntheticWorkoutName {
 			continue
 		}
-		dur := parseAlphaDuration(a.SessionDuration)
+		sessionEnd := syntheticWorkoutEnd(a)
+		source := a.Source
+		if source == "" {
+			source = "Alpha Progression"
+		}
 		workouts = append(workouts, models.WorkoutRow{
-			ID:               uuid.NewSHA1(alphaWorkoutNamespace, []byte("alpha:"+a.SessionDate.Format(time.RFC3339)+":"+a.SessionName)),
+			ID:               syntheticWorkoutID(a),
 			UserID:           userID,
-			Name:             "Traditional Strength Training",
-			Source:           "Alpha Progression",
+			Name:             syntheticWorkoutName,
+			Source:           source,
 			StartTime:        a.SessionDate,
-			EndTime:          a.SessionDate.Add(dur),
-			DurationSec:      dur.Seconds(),
+			EndTime:          sessionEnd,
+			DurationSec:      sessionEnd.Sub(a.SessionDate).Seconds(),
 			AlphaSessionName: a.SessionName,
 		})
 	}

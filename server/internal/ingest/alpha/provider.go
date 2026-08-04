@@ -11,6 +11,10 @@ import (
 	"github.com/claude/freereps/internal/storage"
 )
 
+// SourceName identifies rows in workout_sets that came from an Alpha Progression
+// CSV export. It is part of the table's natural key.
+const SourceName = "Alpha Progression"
+
 // Provider processes Alpha Progression CSV exports.
 type Provider struct {
 	db  *storage.DB
@@ -37,6 +41,7 @@ func (p *Provider) Ingest(ctx context.Context, r io.Reader, userID int) (*ingest
 			for _, set := range ex.Sets {
 				allRows = append(allRows, models.WorkoutSetRow{
 					UserID:           userID,
+					Source:           SourceName,
 					SessionName:      s.Name,
 					SessionDate:      s.Date,
 					SessionDuration:  s.Duration,

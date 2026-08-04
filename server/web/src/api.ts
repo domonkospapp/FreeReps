@@ -458,3 +458,41 @@ export async function disconnectOura(): Promise<void> {
   const res = await fetch(`${BASE}/oura/disconnect`, { method: "DELETE" });
   if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
 }
+
+// --- Hevy Integration ---
+
+export interface HevyStatus {
+  configured: boolean;
+  /** YYYY-MM-DD. Workouts that started before this date are not ingested. */
+  sync_from?: string;
+  /** RFC3339 timestamp the next event fetch resumes from. */
+  last_sync?: string;
+}
+
+export async function fetchHevyStatus(): Promise<HevyStatus> {
+  const res = await fetch(`${BASE}/hevy/status`);
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+export async function saveHevyCredentials(apiKey: string, syncFrom: string): Promise<void> {
+  const res = await fetch(`${BASE}/hevy/credentials`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey, sync_from: syncFrom }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `${res.status}: ${res.statusText}`);
+  }
+}
+
+export async function triggerHevySync(): Promise<void> {
+  const res = await fetch(`${BASE}/hevy/sync`, { method: "POST" });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+}
+
+export async function disconnectHevy(): Promise<void> {
+  const res = await fetch(`${BASE}/hevy/disconnect`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+}

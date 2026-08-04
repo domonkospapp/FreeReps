@@ -15,6 +15,7 @@ type Config struct {
 	Database       DatabaseConfig  `yaml:"database"`
 	Tailscale      TailscaleConfig `yaml:"tailscale"`
 	Oura           OuraConfig      `yaml:"oura"`
+	Hevy           HevyConfig      `yaml:"hevy"`
 	SourcePriority []string        `yaml:"source_priority"`
 }
 
@@ -48,6 +49,18 @@ type OuraConfig struct {
 	RawSyncInterval string `yaml:"sync_interval"`
 }
 
+// HevyConfig holds server-wide Hevy sync settings. The per-user API key and the
+// ingest cutoff are stored in the database, not here.
+//
+// There is no backfill window: the first sync fetches the full event history and
+// the cutoff decides how much of it is kept.
+type HevyConfig struct {
+	SyncInterval time.Duration `yaml:"-"`
+
+	// RawSyncInterval is the YAML representation; parsed into SyncInterval by Load.
+	RawSyncInterval string `yaml:"sync_interval"`
+}
+
 // DSN returns a PostgreSQL connection string.
 func (d DatabaseConfig) DSN() string {
 	sslmode := d.SSLMode
@@ -76,6 +89,9 @@ func Load(path string) (*Config, error) {
 			RawSyncInterval: "30m",
 			BackfillDays:    90,
 		},
+		Hevy: HevyConfig{
+			RawSyncInterval: "30m",
+		},
 		SourcePriority: []string{"Oura", ""},
 	}
 
@@ -96,6 +112,15 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("parsing oura.sync_interval: %w", err)
 		}
 		cfg.Oura.SyncInterval = d
+	}
+
+	// Parse Hevy sync interval.
+	if cfg.Hevy.RawSyncInterval != "" {
+		d, err := time.ParseDuration(cfg.Hevy.RawSyncInterval)
+		if err != nil {
+			return nil, fmt.Errorf("parsing hevy.sync_interval: %w", err)
+		}
+		cfg.Hevy.SyncInterval = d
 	}
 
 	if err := cfg.validate(); err != nil {

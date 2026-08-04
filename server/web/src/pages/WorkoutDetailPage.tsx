@@ -18,7 +18,10 @@ export default function WorkoutDetailPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const routeWorkout = (location.state as { workout?: Workout } | null)?.workout;
-  const isSynthetic = routeWorkout?.Source === "Alpha Progression";
+  // Sessions that live only in workout_sets have no row in the workouts table,
+  // so their id cannot be fetched — the list already carries everything shown.
+  const isSynthetic =
+    routeWorkout?.Source === "Alpha Progression" || routeWorkout?.Source === "Hevy";
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["workout", id],

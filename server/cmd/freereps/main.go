@@ -16,6 +16,7 @@ import (
 	freereps "github.com/claude/freereps"
 	"github.com/claude/freereps/internal/config"
 	"github.com/claude/freereps/internal/demo"
+	"github.com/claude/freereps/internal/hevy"
 	"github.com/claude/freereps/internal/ingest/alpha"
 	"github.com/claude/freereps/internal/ingest/health"
 	freerepsmcp "github.com/claude/freereps/internal/mcp"
@@ -124,6 +125,13 @@ func main() {
 
 	srv.SetOura(tokenMgr, ouraSyncer)
 	log.Info("oura sync started", "interval", cfg.Oura.SyncInterval)
+
+	// Start Hevy sync (always runs; no-ops if no users have an API key)
+	hevySyncer := hevy.NewSyncer(hevy.NewClient(), db, cfg.Hevy, log)
+	go hevySyncer.Run(syncCtx)
+
+	srv.SetHevy(hevySyncer)
+	log.Info("hevy sync started", "interval", cfg.Hevy.SyncInterval)
 
 	// Mount MCP SSE server
 	mcpSrv := freerepsmcp.New(db, Version, log)
