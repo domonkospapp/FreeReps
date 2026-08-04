@@ -150,6 +150,49 @@ func TestGetWorkoutsUsesTheListEndpoint(t *testing.T) {
 	}
 }
 
+// The catalog is the only source of muscle groups in the system, and its
+// endpoint allows a larger page than the workout endpoints — asking for 10 there
+// would turn four requests into forty.
+func TestGetExerciseTemplates(t *testing.T) {
+	var gotPath, gotPageSize string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotPageSize = r.URL.Query().Get("pageSize")
+		_, _ = w.Write([]byte(`{"page":1,"page_count":1,"exercise_templates":[
+		  {"id":"05293BCA","title":"Bench Press (Barbell)","type":"weight_reps",
+		   "primary_muscle_group":"chest","secondary_muscle_groups":["triceps","shoulders"],
+		   "equipment_category":"barbell","is_custom":false}
+		]}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	resp, err := c.GetExerciseTemplates(context.Background(), "k", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/v1/exercise_templates" {
+		t.Errorf("path = %q, want /v1/exercise_templates", gotPath)
+	}
+	if gotPageSize != "100" {
+		t.Errorf("pageSize = %q, want 100", gotPageSize)
+	}
+	if len(resp.ExerciseTemplates) != 1 {
+		t.Fatalf("got %d templates, want 1", len(resp.ExerciseTemplates))
+	}
+	tpl := resp.ExerciseTemplates[0]
+	if tpl.PrimaryMuscleGroup != "chest" {
+		t.Errorf("primary muscle = %q, want chest", tpl.PrimaryMuscleGroup)
+	}
+	if len(tpl.SecondaryMuscleGroups) != 2 {
+		t.Errorf("secondary muscles = %v, want two entries", tpl.SecondaryMuscleGroups)
+	}
+	if tpl.EquipmentCategory != "barbell" {
+		t.Errorf("equipment = %q, want barbell", tpl.EquipmentCategory)
+	}
+}
+
 func TestGetUserInfo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/user/info" {

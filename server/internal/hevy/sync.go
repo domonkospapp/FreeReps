@@ -29,6 +29,7 @@ type syncStats struct {
 	workoutsSkipped  int
 	setsReceived     int
 	setsInserted     int64
+	templatesWritten int64
 	errors           []string
 }
 
@@ -109,6 +110,15 @@ func (s *Syncer) SyncUser(ctx context.Context, userID int) {
 	// would drop every event that arrives while the cycle is running.
 	cursor := time.Now()
 
+	// The catalog is account-independent and changes rarely, but it is the only
+	// source of muscle groups in the system. Refreshing it before the workouts
+	// means a newly created custom exercise is known by the time a set
+	// referencing it arrives.
+	if err := s.syncExerciseTemplates(ctx, creds, stats); err != nil {
+		stats.errors = append(stats.errors, err.Error())
+		s.log.Warn("hevy exercise catalog refresh failed", "error", err)
+	}
+
 	state, err := s.db.GetHevySyncState(ctx, userID)
 	if err != nil {
 		s.logImport(ctx, userID, start, stats, fmt.Errorf("getting sync state: %w", err))
@@ -136,6 +146,42 @@ func (s *Syncer) SyncUser(ctx context.Context, userID int) {
 	}
 
 	s.logImport(ctx, userID, start, stats, nil)
+}
+
+// syncExerciseTemplates refreshes the exercise catalog. A failure here is
+// recorded but does not abort the cycle: workouts are still worth ingesting
+// when the catalog is stale.
+func (s *Syncer) syncExerciseTemplates(ctx context.Context, creds *storage.HevyCredentials, stats *syncStats) error {
+	var all []storage.ExerciseTemplate
+
+	for page := 1; page <= maxPages; page++ {
+		resp, err := s.client.GetExerciseTemplates(ctx, creds.APIKey, page)
+		if err != nil {
+			return fmt.Errorf("fetching exercise templates page %d: %w", page, err)
+		}
+		for _, t := range resp.ExerciseTemplates {
+			all = append(all, storage.ExerciseTemplate{
+				ID:                    t.ID,
+				Title:                 t.Title,
+				ExerciseType:          t.Type,
+				PrimaryMuscleGroup:    t.PrimaryMuscleGroup,
+				SecondaryMuscleGroups: t.SecondaryMuscleGroups,
+				EquipmentCategory:     t.EquipmentCategory,
+				IsCustom:              t.IsCustom,
+			})
+		}
+		if resp.PageCount <= page {
+			break
+		}
+	}
+
+	written, err := s.db.UpsertExerciseTemplates(ctx, all)
+	if err != nil {
+		return err
+	}
+	stats.templatesWritten = written
+	s.log.Info("hevy exercise catalog refreshed", "fetched", len(all), "written", written)
+	return nil
 }
 
 // backfillWorkouts walks the full workout list on the first sync.
@@ -270,7 +316,7 @@ func (s *Syncer) logImport(ctx context.Context, userID int, start time.Time, sta
 	}
 
 	var metadata *json.RawMessage
-	if len(stats.errors) > 0 || stats.workoutsDeleted > 0 || stats.workoutsSkipped > 0 {
+	if len(stats.errors) > 0 || stats.workoutsDeleted > 0 || stats.workoutsSkipped > 0 || stats.templatesWritten > 0 {
 		payload := map[string]any{}
 		if len(stats.errors) > 0 {
 			payload["event_errors"] = stats.errors
@@ -280,6 +326,9 @@ func (s *Syncer) logImport(ctx context.Context, userID int, start time.Time, sta
 		}
 		if stats.workoutsSkipped > 0 {
 			payload["workouts_before_cutoff"] = stats.workoutsSkipped
+		}
+		if stats.templatesWritten > 0 {
+			payload["exercise_templates_written"] = stats.templatesWritten
 		}
 		raw, _ := json.Marshal(payload)
 		rm := json.RawMessage(raw)

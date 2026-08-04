@@ -81,6 +81,28 @@ type PaginatedWorkouts struct {
 	Workouts  []Workout `json:"workouts"`
 }
 
+// ExerciseTemplate describes one exercise in Hevy's catalog.
+//
+// PrimaryMuscleGroup and SecondaryMuscleGroups come from a fixed vocabulary of
+// 20 values (chest, lats, quadriceps, …). This is the only source of muscle
+// data in the system — FreeReps derives none of it itself.
+type ExerciseTemplate struct {
+	ID                    string   `json:"id"`
+	Title                 string   `json:"title"`
+	Type                  string   `json:"type"`
+	PrimaryMuscleGroup    string   `json:"primary_muscle_group"`
+	SecondaryMuscleGroups []string `json:"secondary_muscle_groups"`
+	EquipmentCategory     string   `json:"equipment_category"`
+	IsCustom              bool     `json:"is_custom"`
+}
+
+// PaginatedExerciseTemplates is the response of GET /v1/exercise_templates.
+type PaginatedExerciseTemplates struct {
+	Page              int                `json:"page"`
+	PageCount         int                `json:"page_count"`
+	ExerciseTemplates []ExerciseTemplate `json:"exercise_templates"`
+}
+
 // UserInfo is the response of GET /v1/user/info, used to validate an API key
 // before it is stored.
 type UserInfo struct {

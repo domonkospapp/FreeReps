@@ -18,6 +18,10 @@ const defaultBaseURL = "https://api.hevyapp.com"
 // even for a single sync cycle.
 const maxPageSize = 10
 
+// maxTemplatePageSize is the ceiling on /v1/exercise_templates, which is more
+// generous than the workout endpoints.
+const maxTemplatePageSize = 100
+
 // APIError is a non-200 response from the Hevy API.
 type APIError struct {
 	Path       string
@@ -130,6 +134,27 @@ func (c *Client) GetWorkouts(ctx context.Context, apiKey string, page int) (*Pag
 	var result PaginatedWorkouts
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decoding workouts: %w", err)
+	}
+	return &result, nil
+}
+
+// GetExerciseTemplates fetches one page of the exercise catalog.
+//
+// This endpoint allows a pageSize of 100, ten times what the workout endpoints
+// permit, so the roughly 400 entries arrive in a handful of requests.
+func (c *Client) GetExerciseTemplates(ctx context.Context, apiKey string, page int) (*PaginatedExerciseTemplates, error) {
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("pageSize", strconv.Itoa(maxTemplatePageSize))
+
+	body, err := c.get(ctx, "/v1/exercise_templates", apiKey, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result PaginatedExerciseTemplates
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decoding exercise templates: %w", err)
 	}
 	return &result, nil
 }
