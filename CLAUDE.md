@@ -274,6 +274,33 @@ Commit after each unit of work with a descriptive message.
 - Requires physical device (HealthKit unavailable in Simulator)
 - Bundle ID: `com.meltforce.freereps`
 
+### Repository & CI/CD
+
+**Forgejo is the source of truth**: `git.coydog-fence.ts.net/meltforce.net/freereps`
+(`origin`). `github.com/meltforce/FreeReps` is a push mirror — never push there
+directly. The mirror is `git push --mirror`: it force-pushes *and* prunes refs
+that don't exist on Forgejo, so anything that must survive on GitHub has to
+exist on Forgejo first (a GitHub-only branch is deleted at the next sync).
+
+| Where | What runs | Triggered by |
+|---|---|---|
+| `.forgejo/workflows/ci.yml` | Go build/vet/test/lint, frontend tsc + build, then build → `git.coydog-fence.ts.net/meltforce.net/freereps:edge` → redeploy on `freereps-lxc` | push/PR on `main` |
+| `.github/workflows/ios.yml` | Xcode build (no macOS runner exists on Forgejo) | mirror push |
+| `.github/workflows/release.yml` | Docker Hub image + GitHub Release with `freereps-upload` binaries | tag push, carried over by the mirror |
+
+Deploy runs through the shared reusable workflow
+`meltforce.net/ci-workflows/.forgejo/workflows/build-push-deploy.yml@v4` with
+`sync_compose: false` — **the deployed compose belongs to the homelab repo**
+(`docker/stacks/freereps/compose.yaml`, plus the catalog entry in
+`configuration/docker-stacks/stacks/freereps.yml`, which renders `.env` and
+`config.yaml`). Change the image ref, ports or volumes there, not here.
+`server/docker-compose.yml` is for local development only.
+
+Runner labels: `docker` (normal jobs), `docker-buildx` (image builds), `host`
+(runs on the runner LXC itself — needed for Tailscale SSH into deploy targets).
+The Forgejo org `meltforce.net` already provides `REGISTRY_USER`,
+`REGISTRY_TOKEN`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`; no repo secrets.
+
 ## Development Roadmap
 
 ### Phase 1 — Data Foundation ✅
