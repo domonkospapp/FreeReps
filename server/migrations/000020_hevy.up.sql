@@ -78,25 +78,11 @@ CREATE TABLE hevy_sync_state (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ------------------------------------------------------------
--- Clean up orphaned Alpha workout rows
--- ------------------------------------------------------------
-
--- Commit 7060d9d made the Alpha import write rows into `workouts`; commit
--- 411f4c1 reverted that 3.5 hours later in favour of query-time synthesis, but
--- the rows written in between stayed. Their UUID collides with the synthetic id
--- QueryWorkoutsMerged derives for the same session, so the same session can be
--- served from two different places depending on which path produced it.
+-- Nothing to clean up in `workouts`.
 --
--- No active code path writes this source value: Apple Health leaves source
--- empty, Oura writes 'Oura', the demo seed writes 'demo'. Every row matched here
--- is therefore residue of the reverted feature.
---
--- The rows are copied before deletion rather than dropped outright. Their exact
--- number is not known ahead of time — the API merges real and synthetic entries,
--- so they cannot be counted from outside the database — and a backup table makes
--- the change both auditable and reversible.
-CREATE TABLE IF NOT EXISTS workouts_alpha_orphans_backup AS
-    SELECT * FROM workouts WHERE source = 'Alpha Progression';
-
-DELETE FROM workouts WHERE source = 'Alpha Progression';
+-- Commit 7060d9d briefly made the Alpha import write rows there; 411f4c1
+-- reverted it 3.5 hours later in favour of query-time synthesis. A count on the
+-- deployed database on 2026-08-04 returned zero rows with
+-- source = 'Alpha Progression' — the entries that look like Alpha workouts in
+-- the API response are all synthesised by QueryWorkoutsMerged and exist in no
+-- table. No deletion is therefore needed here.

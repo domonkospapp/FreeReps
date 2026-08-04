@@ -1,8 +1,3 @@
--- Restore the `workouts` rows the up migration moved aside, then drop the backup.
-INSERT INTO workouts SELECT * FROM workouts_alpha_orphans_backup
-    ON CONFLICT DO NOTHING;
-DROP TABLE IF EXISTS workouts_alpha_orphans_backup;
-
 DROP TABLE IF EXISTS hevy_sync_state;
 DROP TABLE IF EXISTS hevy_credentials;
 
