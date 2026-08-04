@@ -16,12 +16,12 @@ type RIRBand struct {
 
 // ExerciseSummary holds aggregated stats for a single exercise.
 type ExerciseSummary struct {
-	Name       string   `json:"name"`
-	TotalSets  int      `json:"total_sets"`
-	TotalReps  int      `json:"total_reps"`
-	TonnageKg  float64  `json:"tonnage_kg"`
-	MaxWeight  float64  `json:"max_weight_kg"`
-	AvgRIR     *float64 `json:"avg_rir,omitempty"`
+	Name      string   `json:"name"`
+	TotalSets int      `json:"total_sets"`
+	TotalReps int      `json:"total_reps"`
+	TonnageKg float64  `json:"tonnage_kg"`
+	MaxWeight float64  `json:"max_weight_kg"`
+	AvgRIR    *float64 `json:"avg_rir,omitempty"`
 }
 
 // ExerciseProgression holds one session's data for a specific exercise.
@@ -45,7 +45,10 @@ type TrainingIntensityResult struct {
 
 // GetTrainingIntensity returns RIR distribution, failure rate, per-exercise stats,
 // and optional exercise progression for strength training.
-// RIR value of -1 is treated as untracked (Alpha Progression sentinel).
+//
+// All effort banding reads effort_rir, the column the database derives from
+// whichever scale the source recorded — RIR for Alpha Progression, RPE for Hevy.
+// A NULL there means the set carries no rating from either.
 func (db *DB) GetTrainingIntensity(ctx context.Context, start, end time.Time, userID int, exerciseFilter string) (*TrainingIntensityResult, error) {
 	result := &TrainingIntensityResult{}
 
@@ -54,19 +57,19 @@ func (db *DB) GetTrainingIntensity(ctx context.Context, start, end time.Time, us
 		`SELECT band, rir_range, sets FROM (
 			SELECT
 				CASE
-					WHEN rir = -1 THEN 'untracked'
-					WHEN rir <= 0 THEN 'failure'
-					WHEN rir <= 1 THEN 'near_failure'
-					WHEN rir <= 2 THEN 'moderate'
-					WHEN rir <= 3 THEN 'easy'
+					WHEN effort_rir IS NULL THEN 'untracked'
+					WHEN effort_rir <= 0 THEN 'failure'
+					WHEN effort_rir <= 1 THEN 'near_failure'
+					WHEN effort_rir <= 2 THEN 'moderate'
+					WHEN effort_rir <= 3 THEN 'easy'
 					ELSE 'very_easy'
 				END AS band,
 				CASE
-					WHEN rir = -1 THEN 'untracked'
-					WHEN rir <= 0 THEN '0'
-					WHEN rir <= 1 THEN '0.5-1'
-					WHEN rir <= 2 THEN '1.5-2'
-					WHEN rir <= 3 THEN '2.5-3'
+					WHEN effort_rir IS NULL THEN 'untracked'
+					WHEN effort_rir <= 0 THEN '0'
+					WHEN effort_rir <= 1 THEN '0.5-1'
+					WHEN effort_rir <= 2 THEN '1.5-2'
+					WHEN effort_rir <= 3 THEN '2.5-3'
 					ELSE '>3'
 				END AS rir_range,
 				COUNT(*)::int AS sets
@@ -130,7 +133,7 @@ func (db *DB) GetTrainingIntensity(ctx context.Context, start, end time.Time, us
 		        COALESCE(SUM(reps), 0)::int,
 		        COALESCE(SUM(weight_kg * reps), 0),
 		        COALESCE(MAX(weight_kg), 0),
-		        AVG(NULLIF(rir, -1))
+		        AVG(effort_rir)
 		 FROM workout_sets
 		 WHERE session_date >= $1 AND session_date < $2
 		   AND user_id = $3
@@ -161,7 +164,7 @@ func (db *DB) GetTrainingIntensity(ctx context.Context, start, end time.Time, us
 			        COALESCE(MAX(weight_kg), 0),
 			        COALESCE(SUM(weight_kg * reps), 0),
 			        COUNT(*)::int,
-			        AVG(NULLIF(rir, -1))
+			        AVG(effort_rir)
 			 FROM workout_sets
 			 WHERE session_date >= $1 AND session_date < $2
 			   AND user_id = $3

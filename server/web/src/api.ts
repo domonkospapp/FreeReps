@@ -230,7 +230,12 @@ export interface WorkoutSet {
   WeightKg: number;
   IsBodyweightPlus: boolean;
   Reps: number;
-  RIR: number;
+  /** Reps in reserve. Alpha Progression records this; -1 means unrated. */
+  RIR: number | null;
+  /** Rating of perceived exertion. Hevy records this instead of RIR. */
+  RPE: number | null;
+  /** Derived by the database from whichever of the two the source supplied. */
+  EffortRIR: number | null;
 }
 
 export async function fetchWorkoutSets(

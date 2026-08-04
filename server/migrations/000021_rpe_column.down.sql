@@ -1,0 +1,2 @@
+ALTER TABLE workout_sets DROP COLUMN IF EXISTS effort_rir;
+ALTER TABLE workout_sets DROP COLUMN IF EXISTS rpe;

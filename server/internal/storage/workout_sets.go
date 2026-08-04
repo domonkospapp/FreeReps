@@ -10,13 +10,14 @@ import (
 )
 
 // workoutSetColumns is the insert column list; its length drives the parameter
-// arithmetic in InsertWorkoutSets.
+// arithmetic in InsertWorkoutSets. effort_rir is absent on purpose — the
+// database generates it from rir and rpe.
 var workoutSetColumns = []string{
 	"user_id", "source", "external_id", "routine_id",
 	"session_name", "session_date", "session_end", "session_duration",
 	"exercise_number", "exercise_name", "exercise_template_id", "exercise_notes",
 	"equipment", "target_reps", "is_warmup", "set_type", "set_number", "superset_id",
-	"weight_kg", "is_bodyweight_plus", "reps", "rir",
+	"weight_kg", "is_bodyweight_plus", "reps", "rir", "rpe",
 	"distance_m", "duration_sec", "custom_metric",
 }
 
@@ -78,7 +79,7 @@ func (db *DB) InsertWorkoutSets(ctx context.Context, rows []models.WorkoutSetRow
 			r.SessionName, r.SessionDate, r.SessionEnd, r.SessionDuration,
 			r.ExerciseNumber, r.ExerciseName, r.ExerciseTemplateID, r.ExerciseNotes,
 			r.Equipment, r.TargetReps, r.IsWarmup, setType, r.SetNumber, r.SupersetID,
-			r.WeightKg, r.IsBodyweightPlus, r.Reps, r.RIR,
+			r.WeightKg, r.IsBodyweightPlus, r.Reps, r.RIR, r.RPE,
 			r.DistanceM, r.DurationSec, r.CustomMetric,
 		)
 	}
@@ -98,7 +99,7 @@ func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID
 		 session_name, session_date, session_end, session_duration,
 		 exercise_number, exercise_name, exercise_template_id, exercise_notes,
 		 equipment, target_reps, is_warmup, set_type, set_number, superset_id,
-		 weight_kg, is_bodyweight_plus, reps, rir,
+		 weight_kg, is_bodyweight_plus, reps, rir, rpe, effort_rir,
 		 distance_m, duration_sec, custom_metric
 		 FROM workout_sets
 		 WHERE session_date >= $1 AND session_date < $2 AND user_id = $3`
@@ -121,7 +122,7 @@ func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID
 			&r.SessionName, &r.SessionDate, &r.SessionEnd, &r.SessionDuration,
 			&r.ExerciseNumber, &r.ExerciseName, &r.ExerciseTemplateID, &r.ExerciseNotes,
 			&r.Equipment, &r.TargetReps, &r.IsWarmup, &r.SetType, &r.SetNumber, &r.SupersetID,
-			&r.WeightKg, &r.IsBodyweightPlus, &r.Reps, &r.RIR,
+			&r.WeightKg, &r.IsBodyweightPlus, &r.Reps, &r.RIR, &r.RPE, &r.EffortRIR,
 			&r.DistanceM, &r.DurationSec, &r.CustomMetric); err != nil {
 			return nil, fmt.Errorf("scanning workout set: %w", err)
 		}

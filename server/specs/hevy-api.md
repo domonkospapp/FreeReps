@@ -120,16 +120,20 @@ every existing aggregate query filters on that column.
 
 ## RPE and RIR
 
-Hevy records **RPE** (Rating of Perceived Exertion); FreeReps stores **RIR**
-(Reps in Reserve), the scale the Alpha Progression history uses.
+Hevy records **RPE** (Rating of Perceived Exertion); the Alpha Progression
+history records **RIR** (Reps in Reserve). Both are stored on their own scale in
+their own column, and the database derives `effort_rir` from whichever is
+present — see `database-schema.md`.
 
-The two are complements: `rir = 10 - rpe`.
+The two are arithmetic complements (`rir = 10 - rpe`) but not the same judgement:
+RPE rates how hard a set felt, RIR estimates what was left in the tank.
+Converting at ingest would normalize a source at write time, which
+`DECISIONS.md` 2026-03-25 rules out.
 
 When writing, the API restricts RPE to the enum `6, 7, 7.5, 8, 8.5, 9, 9.5, 10`,
 which covers RIR 0 through 4 on a half-point grid. Reading returns a plain
-number. `rpe` is `null` for an unrated set, which maps to the sentinel `rir = -1`
-that `storage.GetTrainingIntensity` already treats as untracked — mapping it to
-0 instead would claim the set was taken to failure.
+number. `rpe` is `null` for an unrated set, and that null is preserved — a
+converted 0 would claim the set was taken to failure.
 
 ## Null fields
 

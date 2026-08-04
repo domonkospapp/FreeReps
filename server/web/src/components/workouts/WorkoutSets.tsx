@@ -12,6 +12,18 @@ const STRENGTH_TYPES = new Set([
   "Kerntraining",
 ]);
 
+/**
+ * Renders the effort rating on the scale the source recorded it. Alpha
+ * Progression logs RIR, Hevy logs RPE, and the two run in opposite directions —
+ * RIR 1 and RPE 9 describe the same set. Labelling the value prevents reading
+ * one as the other.
+ */
+function formatEffort(set: WorkoutSet): string {
+  if (set.RPE != null) return `RPE ${set.RPE.toFixed(1)}`;
+  if (set.RIR != null && set.RIR >= 0) return `RIR ${set.RIR.toFixed(1)}`;
+  return "-";
+}
+
 interface Props {
   workoutId: string;
   workoutName: string;
@@ -83,7 +95,7 @@ export default function WorkoutSets({
                   <th className="text-left py-1 w-12">Set</th>
                   <th className="text-right py-1">Weight</th>
                   <th className="text-right py-1">Reps</th>
-                  <th className="text-right py-1">RIR</th>
+                  <th className="text-right py-1">RIR / RPE</th>
                 </tr>
               </thead>
               <tbody>
@@ -106,7 +118,7 @@ export default function WorkoutSets({
                     </td>
                     <td className="text-right py-1 tabular-nums">{set.Reps}</td>
                     <td className="text-right py-1 tabular-nums">
-                      {set.RIR >= 0 ? set.RIR.toFixed(1) : "-"}
+                      {formatEffort(set)}
                     </td>
                   </tr>
                 ))}

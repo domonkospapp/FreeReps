@@ -8,23 +8,38 @@ import (
 func floatPtr(f float64) *float64 { return &f }
 func intPtr(i int) *int           { return &i }
 
-func TestRPEToRIR(t *testing.T) {
+// RPE is stored on the scale Hevy delivers it. An earlier version converted it
+// to RIR while writing, which normalised a source at ingest time — the database
+// derives effort_rir from whichever scale is present instead. RIR must stay
+// empty on Hevy rows, because a zero there would read as training to failure.
+func TestMapWorkoutKeepsRPEUnconverted(t *testing.T) {
+	rows, err := MapWorkout(sampleWorkout(), 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
 	tests := []struct {
-		name string
-		rpe  *float64
-		want float64
+		name    string
+		row     int
+		wantRPE *float64
 	}{
-		{"unrated set is untracked, not failure", nil, -1},
-		{"RPE 10 is training to failure", floatPtr(10), 0},
-		{"RPE 9.5 maps to half a rep in reserve", floatPtr(9.5), 0.5},
-		{"RPE 8 maps to two reps in reserve", floatPtr(8), 2},
-		{"RPE 6, the lowest Hevy writes, maps to four", floatPtr(6), 4},
-		{"a value above 10 clamps at zero", floatPtr(11), 0},
+		{"unrated warmup carries no RPE", 0, nil},
+		{"RPE 9 is stored as 9, not converted to RIR 1", 1, floatPtr(9)},
+		{"RPE 10 is stored as 10, not converted to RIR 0", 2, floatPtr(10)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := rpeToRIR(tt.rpe); got != tt.want {
-				t.Errorf("rpeToRIR() = %v, want %v", got, tt.want)
+			got := rows[tt.row].RPE
+			switch {
+			case tt.wantRPE == nil && got != nil:
+				t.Errorf("RPE = %v, want nil", *got)
+			case tt.wantRPE != nil && got == nil:
+				t.Errorf("RPE = nil, want %v", *tt.wantRPE)
+			case tt.wantRPE != nil && *got != *tt.wantRPE:
+				t.Errorf("RPE = %v, want %v", *got, *tt.wantRPE)
+			}
+			if rows[tt.row].RIR != nil {
+				t.Errorf("RIR = %v, want nil — Hevy rows leave the RIR column empty", *rows[tt.row].RIR)
 			}
 		})
 	}
@@ -116,8 +131,8 @@ func TestMapWorkout(t *testing.T) {
 	if !first.IsWarmup {
 		t.Error("a set of type warmup must set IsWarmup")
 	}
-	if first.RIR != -1 {
-		t.Errorf("unrated warmup RIR = %v, want -1 (untracked)", first.RIR)
+	if first.RPE != nil {
+		t.Errorf("unrated warmup RPE = %v, want nil", *first.RPE)
 	}
 	if first.SupersetID == nil || *first.SupersetID != 2 {
 		t.Errorf("SupersetID = %v, want 2", first.SupersetID)
@@ -127,8 +142,8 @@ func TestMapWorkout(t *testing.T) {
 	if working.IsWarmup {
 		t.Error("a normal set must not set IsWarmup")
 	}
-	if working.RIR != 1 {
-		t.Errorf("RPE 9 should map to RIR 1, got %v", working.RIR)
+	if working.RPE == nil || *working.RPE != 9 {
+		t.Errorf("RPE = %v, want 9", working.RPE)
 	}
 	if working.WeightKg != 80 || working.Reps != 8 {
 		t.Errorf("weight/reps = %v/%d, want 80/8", working.WeightKg, working.Reps)

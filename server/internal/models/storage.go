@@ -106,6 +106,10 @@ type WorkoutRouteRow struct {
 // ExternalID, RoutineID, ExerciseTemplateID, SetType and SupersetID and leaves
 // the Alpha-specific ones empty. Source distinguishes them and is part of the
 // natural key.
+//
+// Effort is recorded on whichever scale the source uses: Alpha writes RIR (with
+// -1 for an unrated set), Hevy writes RPE. EffortRIR is computed by the database
+// from whichever is present and is the field every query should read.
 type WorkoutSetRow struct {
 	UserID             int
 	Source             string
@@ -128,7 +132,9 @@ type WorkoutSetRow struct {
 	WeightKg           float64
 	IsBodyweightPlus   bool
 	Reps               int
-	RIR                float64
+	RIR                *float64
+	RPE                *float64
+	EffortRIR          *float64
 	DistanceM          *float64
 	DurationSec        *float64
 	CustomMetric       *float64

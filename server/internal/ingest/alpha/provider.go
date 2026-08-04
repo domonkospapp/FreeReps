@@ -39,6 +39,9 @@ func (p *Provider) Ingest(ctx context.Context, r io.Reader, userID int) (*ingest
 	for _, s := range sessions {
 		for _, ex := range s.Exercises {
 			for _, set := range ex.Sets {
+				// Alpha always reports RIR, using -1 for an unrated set; the
+				// column is nullable because Hevy leaves it empty.
+				rir := set.RIR
 				allRows = append(allRows, models.WorkoutSetRow{
 					UserID:           userID,
 					Source:           SourceName,
@@ -54,7 +57,7 @@ func (p *Provider) Ingest(ctx context.Context, r io.Reader, userID int) (*ingest
 					WeightKg:         set.WeightKg,
 					IsBodyweightPlus: set.IsBodyweightPlus,
 					Reps:             set.Reps,
-					RIR:              set.RIR,
+					RIR:              &rir,
 				})
 			}
 		}
