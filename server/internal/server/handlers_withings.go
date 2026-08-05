@@ -11,7 +11,7 @@ import (
 
 const (
 	withingsStateCookieName = "withings_state"
-	withingsRedirectURI     = "https://freereps.leo-royal.ts.net/withings/callback"
+	withingsRedirectURI     = "https://freereps.coydog-fence.ts.net/withings/callback"
 )
 
 // handleWithingsStatus returns the Withings connection status for the current user.

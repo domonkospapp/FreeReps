@@ -265,7 +265,10 @@ without a Withings account.
 
 1. **Register an app** in the [Withings Partner Hub](https://developer.withings.com/dashboard/).
    The Public API tier requires no contract and no approval.
-   - Redirect URI: `https://your-freereps-host.ts.net/withings/callback`
+   - Redirect URI: `https://your-freereps-host.ts.net/withings/callback` — the
+     host must match the tailnet's current MagicDNS name. Renaming a tailnet
+     changes it, and the OAuth callback is the only place that breaks, because
+     token refresh sends no redirect URI.
    - Scope: `user.metrics`
 
 2. **Enter credentials in FreeReps**: Settings > Withings, enter Client ID and

@@ -11,7 +11,7 @@ import (
 
 const (
 	ouraStateCookieName = "oura_state"
-	ouraRedirectURI     = "https://freereps.leo-royal.ts.net/oura/callback"
+	ouraRedirectURI     = "https://freereps.coydog-fence.ts.net/oura/callback"
 )
 
 // handleOuraStatus returns the Oura connection status for the current user.
