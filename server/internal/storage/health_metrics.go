@@ -187,53 +187,69 @@ func (db *DB) GetLatestMetrics(ctx context.Context, userID int) ([]models.Health
 	return db.latestMetrics(ctx, userID, nil)
 }
 
-// recentLookupDays bounds the first pass of the latest-value lookup.
+// lookupWindowDays are the windows the latest-value lookup tries in turn, each
+// one only for the metrics the previous window did not answer.
 //
-// health_metrics is a hypertable, and without a time predicate TimescaleDB
-// cannot exclude chunks — every per-metric lookup walks back through all of
-// them until it finds a row, which costs the same whether the reading is from
-// this morning or two years ago. Nearly every metric has something within this
-// window, so the bounded pass answers almost all of them and the unbounded
-// second pass runs for the few stragglers.
-const recentLookupDays = 120
+// health_metrics is a hypertable in 7-day chunks, and a lookup scans the chunks
+// its window covers. A single window sized for the rarest metric therefore
+// makes the common ones pay for it: at 120 days each of 17 metrics walked
+// roughly 17 chunks, measured at 531ms for the whole step — 81% of the front
+// page. Most metrics write daily or oftener and are answered by the first
+// window, which is one chunk.
+//
+// The last entry is unbounded, so a metric last recorded years ago still
+// reports its value.
+var lookupWindowDays = []int{7, 90, 400, 0}
 
 // GetLatestMetricsFor is GetLatestMetrics restricted to named metrics.
 //
-// Two passes: a bounded one that TimescaleDB can satisfy from recent chunks,
-// then an unbounded one for whichever names it did not answer — a metric like
-// body weight, last recorded months ago, still reports its value.
+// Walks lookupWindowDays, carrying forward only the metrics still unanswered.
+// A metric with fresh data costs one chunk; one last seen years ago costs the
+// wider scan, but only for itself.
 func (db *DB) GetLatestMetricsFor(ctx context.Context, userID int, names []string) ([]models.HealthMetricRow, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
 
 	priorities := db.ResolveSourcePriority(ctx, userID, "_default")
-	since := time.Now().AddDate(0, 0, -recentLookupDays)
+	now := time.Now()
 
-	recent, err := db.queryLatest(ctx, latestMetricsForNamesRecentQuery(priorities, since), userID, names)
-	if err != nil {
-		return nil, err
-	}
+	var found []models.HealthMetricRow
+	pending := names
 
-	found := make(map[string]bool, len(recent))
-	for _, row := range recent {
-		found[row.MetricName] = true
-	}
-	var stale []string
-	for _, name := range names {
-		if !found[name] {
-			stale = append(stale, name)
+	for _, days := range lookupWindowDays {
+		var (
+			rows []models.HealthMetricRow
+			err  error
+		)
+		if days == 0 {
+			rows, err = db.queryLatest(ctx, latestMetricsForNamesQuery(priorities), userID, pending)
+		} else {
+			since := now.AddDate(0, 0, -days)
+			rows, err = db.queryLatest(ctx,
+				latestMetricsForNamesRecentQuery(priorities, since), userID, pending)
 		}
-	}
-	if len(stale) == 0 {
-		return recent, nil
-	}
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, rows...)
 
-	older, err := db.queryLatest(ctx, latestMetricsForNamesQuery(priorities), userID, stale)
-	if err != nil {
-		return nil, err
+		answered := make(map[string]bool, len(rows))
+		for _, r := range rows {
+			answered[r.MetricName] = true
+		}
+		remaining := pending[:0:0]
+		for _, name := range pending {
+			if !answered[name] {
+				remaining = append(remaining, name)
+			}
+		}
+		if len(remaining) == 0 {
+			return found, nil
+		}
+		pending = remaining
 	}
-	return append(recent, older...), nil
+	return found, nil
 }
 
 func (db *DB) latestMetrics(ctx context.Context, userID int, names []string) ([]models.HealthMetricRow, error) {
