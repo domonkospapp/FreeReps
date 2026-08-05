@@ -121,7 +121,7 @@ func BuildDashboardMetric(points []DailyPoint, start time.Time, bufferDays, seri
 	buffer := make([]*float64, bufferDays)
 	startDay := start.Truncate(24 * time.Hour)
 	for _, p := range points {
-		idx := int(p.Day.Truncate(24 * time.Hour).Sub(startDay) / (24 * time.Hour))
+		idx := int(p.Day.Truncate(24*time.Hour).Sub(startDay) / (24 * time.Hour))
 		if idx >= 0 && idx < bufferDays {
 			v := p.Value
 			buffer[idx] = &v

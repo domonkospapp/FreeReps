@@ -70,6 +70,41 @@ func TestDedupCTE(t *testing.T) {
 	}
 }
 
+// TestLatestMetricsQueryDedupesBySourcePriority exists because the latest value
+// and the series drawn beside it used to be resolved differently: the series
+// deduplicated by source priority while the latest row was picked by timestamp
+// alone. A lower-priority device writing a minute later then decided both the
+// value and the source name shown next to a sparkline computed from the other
+// device.
+func TestLatestMetricsQueryDedupesBySourcePriority(t *testing.T) {
+	query := latestMetricsQuery([]string{"Oura", ""})
+
+	checks := []string{
+		"WITH deduped AS",
+		"PARTITION BY metric_name, time_bucket('5 minutes', time)",
+		// Priority decides inside a bucket, recency decides between buckets.
+		"WHEN source LIKE 'Oura%' THEN 1",
+		"WHERE rn = 1",
+		"ORDER BY metric_name, time DESC",
+	}
+
+	for _, check := range checks {
+		if !strings.Contains(query, check) {
+			t.Errorf("latestMetricsQuery missing %q in:\n%s", check, query)
+		}
+	}
+}
+
+// TestLatestMetricsQueryWithoutPrioritiesIsANoOp verifies the query still
+// resolves when no priority is configured, rather than emitting an empty CASE.
+func TestLatestMetricsQueryWithoutPrioritiesIsANoOp(t *testing.T) {
+	query := latestMetricsQuery(nil)
+
+	if !strings.Contains(query, "ORDER BY 1") {
+		t.Errorf("expected the no-op ordering, got:\n%s", query)
+	}
+}
+
 // TestDedupCTEMultiMetric verifies the multi-metric CTE partitions by both
 // metric_name and time bucket, preventing cross-metric deduplication.
 func TestDedupCTEMultiMetric(t *testing.T) {

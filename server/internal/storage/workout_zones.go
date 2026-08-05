@@ -16,8 +16,8 @@ var zoneBounds = []float64{0.6, 0.7, 0.8, 0.9}
 // WorkoutZones holds one session's share of time per zone, as fractions summing
 // to 1. Empty when the session has no heart rate samples.
 type WorkoutZones struct {
-	WorkoutID string     `json:"workout_id"`
-	Shares    []float64  `json:"shares"`
+	WorkoutID string    `json:"workout_id"`
+	Shares    []float64 `json:"shares"`
 }
 
 // GetMaxHeartRate returns the highest heart rate ever recorded for the user,

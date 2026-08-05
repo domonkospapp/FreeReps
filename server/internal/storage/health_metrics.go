@@ -153,20 +153,42 @@ func (db *DB) QueryHealthMetrics(ctx context.Context, metricName string, start, 
 	return scanHealthMetricRows(rows)
 }
 
-// GetLatestMetrics returns the most recent data point for each metric.
+// GetLatestMetrics returns the most recent data point for each metric, resolved
+// against the user's source priority.
+//
+// The priority applies within a 5-minute bucket, as everywhere else: the newest
+// bucket wins, and inside it the highest-priority source. Ordering by time alone
+// would let a lower-priority device that wrote a minute later decide both the
+// value and the source name shown beside it — while the series next to it, which
+// does dedupe by priority, came from the other device.
 func (db *DB) GetLatestMetrics(ctx context.Context, userID int) ([]models.HealthMetricRow, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT DISTINCT ON (metric_name) time, user_id, metric_name, source, units, qty, min_val, avg_val, max_val, systolic, diastolic, source_uuid
-		 FROM health_metrics
-		 WHERE user_id = $1
-		 ORDER BY metric_name, time DESC`,
-		userID)
+	priorities := db.ResolveSourcePriority(ctx, userID, "_default")
+
+	rows, err := db.Pool.Query(ctx, latestMetricsQuery(priorities), userID)
 	if err != nil {
 		return nil, fmt.Errorf("querying latest metrics: %w", err)
 	}
 	defer rows.Close()
 
 	return scanHealthMetricRows(rows)
+}
+
+// latestMetricsQuery builds the deduplicated latest-per-metric query. Split out
+// so the priority ordering can be asserted without a database.
+func latestMetricsQuery(priorities []string) string {
+	return fmt.Sprintf(
+		`WITH deduped AS (
+			SELECT *, ROW_NUMBER() OVER (
+				PARTITION BY metric_name, time_bucket('5 minutes', time)
+				ORDER BY %s
+			) AS rn
+			FROM health_metrics
+			WHERE user_id = $1
+		)
+		SELECT DISTINCT ON (metric_name) time, user_id, metric_name, source, units, qty, min_val, avg_val, max_val, systolic, diastolic, source_uuid
+		 FROM deduped
+		 WHERE rn = 1
+		 ORDER BY metric_name, time DESC`, sourcePriorityCaseSQL(priorities))
 }
 
 // GetTimeSeries returns aggregated time-series data using time_bucket.

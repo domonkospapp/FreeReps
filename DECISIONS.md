@@ -57,6 +57,13 @@ band, gridlines, baseline, two polylines — needs no plotting library.
 **The stated range is p05–p95, not min–max.** One dropped sensor reading would
 widen a min/max range enough to make the number meaningless.
 
+**`GetLatestMetrics` now resolves source priority.** It previously picked by
+timestamp alone, so a lower-priority device writing a minute later decided both
+the shown value and the source name — beside a sparkline computed from the
+higher-priority device, which does dedupe. Priority now decides within a
+5-minute bucket and recency between buckets, matching every other query. Same
+failure shape as [`INCIDENTS.md`](INCIDENTS.md), 2026-03-25.
+
 **Trigger to re-open.** A screen whose data cannot be served from one request
 without a second round trip, or a phone layout that needs different information
 rather than a different arrangement of the same information.

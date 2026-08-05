@@ -94,7 +94,7 @@ func (s *Server) handleLatestMetrics(w http.ResponseWriter, r *http.Request) {
 		bufferDays = storage.DeltaWindowDays
 	}
 
-	end := time.Now().Truncate(24 * time.Hour).AddDate(0, 0, 1)
+	end := time.Now().Truncate(24*time.Hour).AddDate(0, 0, 1)
 	start := end.AddDate(0, 0, -bufferDays)
 	windowStart := end.AddDate(0, 0, -windowDays)
 
