@@ -95,20 +95,27 @@ func (db *DB) InsertWorkoutSets(ctx context.Context, rows []models.WorkoutSetRow
 
 // QueryWorkoutSets retrieves workout sets in a date range, optionally filtered by exercise name.
 func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID int, exerciseFilter string) ([]models.WorkoutSetRow, error) {
-	query := `SELECT user_id, source, external_id, routine_id,
-		 session_name, session_date, session_end, session_duration,
-		 exercise_number, exercise_name, exercise_template_id, exercise_notes,
-		 equipment, target_reps, is_warmup, set_type, set_number, superset_id,
-		 weight_kg, is_bodyweight_plus, reps, rir, rpe, effort_rir,
-		 distance_m, duration_sec, custom_metric
-		 FROM workout_sets
-		 WHERE session_date >= $1 AND session_date < $2 AND user_id = $3`
+	// The muscle group comes from the exercise catalog: Hevy rows reference it
+	// directly, Alpha rows reach it through exercise_name_map.
+	query := `SELECT ws.user_id, ws.source, ws.external_id, ws.routine_id,
+		 ws.session_name, ws.session_date, ws.session_end, ws.session_duration,
+		 ws.exercise_number, ws.exercise_name, ws.exercise_template_id, ws.exercise_notes,
+		 COALESCE(t.primary_muscle_group, ''),
+		 ws.equipment, ws.target_reps, ws.is_warmup, ws.set_type, ws.set_number, ws.superset_id,
+		 ws.weight_kg, ws.is_bodyweight_plus, ws.reps, ws.rir, ws.rpe, ws.effort_rir,
+		 ws.distance_m, ws.duration_sec, ws.custom_metric
+		 FROM workout_sets ws
+		 LEFT JOIN exercise_name_map m
+		        ON m.source = ws.source AND m.exercise_name = ws.exercise_name
+		 LEFT JOIN exercise_templates t
+		        ON t.id = COALESCE(NULLIF(ws.exercise_template_id, ''), m.exercise_template_id)
+		 WHERE ws.session_date >= $1 AND ws.session_date < $2 AND ws.user_id = $3`
 	args := []any{start, end, userID}
 	if exerciseFilter != "" {
-		query += ` AND exercise_name ILIKE '%' || $4 || '%'`
+		query += ` AND ws.exercise_name ILIKE '%' || $4 || '%'`
 		args = append(args, exerciseFilter)
 	}
-	query += ` ORDER BY session_date DESC, exercise_number ASC, is_warmup DESC, set_number ASC`
+	query += ` ORDER BY ws.session_date DESC, ws.exercise_number ASC, ws.is_warmup DESC, ws.set_number ASC`
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying workout sets: %w", err)
@@ -121,6 +128,7 @@ func (db *DB) QueryWorkoutSets(ctx context.Context, start, end time.Time, userID
 		if err := rows.Scan(&r.UserID, &r.Source, &r.ExternalID, &r.RoutineID,
 			&r.SessionName, &r.SessionDate, &r.SessionEnd, &r.SessionDuration,
 			&r.ExerciseNumber, &r.ExerciseName, &r.ExerciseTemplateID, &r.ExerciseNotes,
+			&r.PrimaryMuscleGroup,
 			&r.Equipment, &r.TargetReps, &r.IsWarmup, &r.SetType, &r.SetNumber, &r.SupersetID,
 			&r.WeightKg, &r.IsBodyweightPlus, &r.Reps, &r.RIR, &r.RPE, &r.EffortRIR,
 			&r.DistanceM, &r.DurationSec, &r.CustomMetric); err != nil {

@@ -223,6 +223,8 @@ export interface WorkoutSet {
   SessionDuration: string;
   ExerciseNumber: number;
   ExerciseName: string;
+  /** Resolved from the exercise catalog; empty when the exercise has no entry. */
+  PrimaryMuscleGroup: string;
   Equipment: string;
   TargetReps: number;
   IsWarmup: boolean;

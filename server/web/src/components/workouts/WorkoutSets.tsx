@@ -60,15 +60,24 @@ export default function WorkoutSets({
   }
 
   // Group sets by exercise name, preserving order
-  const exercises: { name: string; equipment: string; sets: WorkoutSet[] }[] =
-    [];
+  const exercises: {
+    name: string;
+    equipment: string;
+    muscle: string;
+    sets: WorkoutSet[];
+  }[] = [];
   const exerciseMap = new Map<string, number>();
 
   for (const set of data) {
     const key = set.ExerciseName;
     if (!exerciseMap.has(key)) {
       exerciseMap.set(key, exercises.length);
-      exercises.push({ name: set.ExerciseName, equipment: set.Equipment, sets: [] });
+      exercises.push({
+        name: set.ExerciseName,
+        equipment: set.Equipment,
+        muscle: set.PrimaryMuscleGroup,
+        sets: [],
+      });
     }
     exercises[exerciseMap.get(key)!].sets.push(set);
   }
@@ -87,6 +96,11 @@ export default function WorkoutSets({
               </span>
               {ex.equipment && (
                 <span className="text-xs text-zinc-500">{ex.equipment}</span>
+              )}
+              {ex.muscle && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                  {ex.muscle.replace(/_/g, " ")}
+                </span>
               )}
             </div>
             <table className="w-full text-sm">

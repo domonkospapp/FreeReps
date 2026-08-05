@@ -85,7 +85,7 @@ var toolGetWorkouts = mcp.NewTool("get_workouts",
 )
 
 var toolGetWorkoutSets = mcp.NewTool("get_workout_sets",
-	mcp.WithDescription("Query strength training set data (Alpha Progression). Returns exercise details including weight, reps, and RIR for each set."),
+	mcp.WithDescription("FreeReps database: individual strength training sets. Returns exercise, muscle group, weight, reps, and the effort rating on the scale its source recorded — RIR for Alpha Progression, RPE for Hevy."),
 	mcp.WithString("start", mcp.Description("Start date. Defaults to 7 days ago.")),
 	mcp.WithString("end", mcp.Description("End date. Defaults to now.")),
 	mcp.WithString("exercise", mcp.Description("Filter by exercise name (partial match, e.g. 'bench press')")),
@@ -95,18 +95,37 @@ var toolListAvailableMetrics = mcp.NewTool("list_available_metrics",
 	mcp.WithDescription("List all available health metrics with their categories and enabled status."),
 )
 
-var toolGetTrainingSummary = mcp.NewTool("get_training_summary",
-	mcp.WithDescription("Monthly/weekly aggregated workout and strength training volume. Returns workout counts, duration, calories by type, plus strength set/rep/tonnage totals per period."),
+// The strength_* tools are named for their data basis rather than for "training"
+// because a Hevy MCP server offers near-identical names against training data
+// alone. These read the full FreeReps history, which spans every logging app
+// used so far and sits alongside sleep, HRV and readiness.
+
+var toolGetStrengthSummary = mcp.NewTool("get_strength_summary",
+	mcp.WithDescription("FreeReps database: monthly/weekly aggregated workout and strength volume across all logging sources. Returns workout counts, duration, calories by type, plus strength set/rep/tonnage totals per period."),
 	mcp.WithString("start", mcp.Description("Start date. Defaults to 6 months ago.")),
 	mcp.WithString("end", mcp.Description("End date. Defaults to now.")),
 	mcp.WithString("bucket", mcp.Description("Aggregation period. Defaults to '1 month'."), mcp.Enum("1 week", "1 month")),
 )
 
-var toolGetTrainingIntensity = mcp.NewTool("get_training_intensity",
-	mcp.WithDescription("RIR distribution, failure rate, per-exercise stats, and optional exercise progression. Returns intensity analysis for strength training."),
+var toolGetStrengthIntensity = mcp.NewTool("get_strength_intensity",
+	mcp.WithDescription("FreeReps database: effort distribution in reps-in-reserve bands, failure rate, per-exercise stats, and optional per-session progression. Covers sets logged as RIR and as RPE alike."),
 	mcp.WithString("start", mcp.Description("Start date. Defaults to 90 days ago.")),
 	mcp.WithString("end", mcp.Description("End date. Defaults to now.")),
 	mcp.WithString("exercise", mcp.Description("Filter by exercise name (partial match). When set, includes session-by-session progression.")),
+)
+
+var toolGetStrengthVolume = mcp.NewTool("get_strength_volume",
+	mcp.WithDescription("FreeReps database: sets per muscle group per period, as primary-target sets and as sets weighted with assisting muscles at 0.5. Also reports training frequency per muscle, and how much of each figure rests on approximate exercise mapping or on exercises with no muscle data at all."),
+	mcp.WithString("start", mcp.Description("Start date. Defaults to 12 weeks ago.")),
+	mcp.WithString("end", mcp.Description("End date. Defaults to now.")),
+	mcp.WithString("bucket", mcp.Description("Aggregation period. Defaults to '1 week'."), mcp.Enum("1 week", "1 month")),
+)
+
+var toolGetStrengthE1RM = mcp.NewTool("get_strength_1rm",
+	mcp.WithDescription("FreeReps database: estimated one-rep max per exercise per session, using Epley over repetitions plus reps in reserve. Sets without an effort rating are excluded. The estimate loses accuracy above roughly ten effective repetitions."),
+	mcp.WithString("start", mcp.Description("Start date. Defaults to 6 months ago.")),
+	mcp.WithString("end", mcp.Description("End date. Defaults to now.")),
+	mcp.WithString("exercise", mcp.Description("Filter by exercise name (partial match). Without it, every exercise is returned.")),
 )
 
 var toolGetSleepSummary = mcp.NewTool("get_sleep_summary",
@@ -406,7 +425,7 @@ func (h *handlers) comparePeriods(ctx context.Context, req mcp.CallToolRequest) 
 	return result, nil
 }
 
-func (h *handlers) getTrainingSummary(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (h *handlers) getStrengthSummary(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	endStr := req.GetString("end", "")
 	startStr := req.GetString("start", "")
 
@@ -436,7 +455,7 @@ func (h *handlers) getTrainingSummary(ctx context.Context, req mcp.CallToolReque
 
 	summary, err := h.ds.GetTrainingSummary(ctx, start, end, bucket, uid)
 	if err != nil {
-		h.log.Error("mcp get_training_summary", "error", err)
+		h.log.Error("mcp get_strength_summary", "error", err)
 		return mcp.NewToolResultError("query failed: " + err.Error()), nil
 	}
 
@@ -447,7 +466,7 @@ func (h *handlers) getTrainingSummary(ctx context.Context, req mcp.CallToolReque
 	return result, nil
 }
 
-func (h *handlers) getTrainingIntensity(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (h *handlers) getStrengthIntensity(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	endStr := req.GetString("end", "")
 	startStr := req.GetString("start", "")
 
@@ -477,11 +496,80 @@ func (h *handlers) getTrainingIntensity(ctx context.Context, req mcp.CallToolReq
 
 	intensity, err := h.ds.GetTrainingIntensity(ctx, start, end, uid, exerciseFilter)
 	if err != nil {
-		h.log.Error("mcp get_training_intensity", "error", err)
+		h.log.Error("mcp get_strength_intensity", "error", err)
 		return mcp.NewToolResultError("query failed: " + err.Error()), nil
 	}
 
 	result, err := mcp.NewToolResultJSON(intensity)
+	if err != nil {
+		return mcp.NewToolResultError("serialization failed"), nil
+	}
+	return result, nil
+}
+
+func (h *handlers) getStrengthVolume(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	end := time.Now()
+	if s := req.GetString("end", ""); s != "" {
+		parsed, err := parseFlexTime(s)
+		if err != nil {
+			return mcp.NewToolResultError("invalid end date: " + err.Error()), nil
+		}
+		end = parsed
+	}
+
+	start := end.AddDate(0, 0, -84) // 12 weeks
+	if s := req.GetString("start", ""); s != "" {
+		parsed, err := parseFlexTime(s)
+		if err != nil {
+			return mcp.NewToolResultError("invalid start date: " + err.Error()), nil
+		}
+		start = parsed
+	}
+
+	bucket := req.GetString("bucket", "1 week")
+	uid := UserIDFromContext(ctx)
+
+	volume, err := h.ds.GetTrainingVolume(ctx, start, end, bucket, uid)
+	if err != nil {
+		h.log.Error("mcp get_strength_volume", "error", err)
+		return mcp.NewToolResultError("query failed: " + err.Error()), nil
+	}
+
+	result, err := mcp.NewToolResultJSON(map[string]any{"data": volume})
+	if err != nil {
+		return mcp.NewToolResultError("serialization failed"), nil
+	}
+	return result, nil
+}
+
+func (h *handlers) getStrengthE1RM(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	end := time.Now()
+	if s := req.GetString("end", ""); s != "" {
+		parsed, err := parseFlexTime(s)
+		if err != nil {
+			return mcp.NewToolResultError("invalid end date: " + err.Error()), nil
+		}
+		end = parsed
+	}
+
+	start := end.AddDate(0, -6, 0)
+	if s := req.GetString("start", ""); s != "" {
+		parsed, err := parseFlexTime(s)
+		if err != nil {
+			return mcp.NewToolResultError("invalid start date: " + err.Error()), nil
+		}
+		start = parsed
+	}
+
+	uid := UserIDFromContext(ctx)
+
+	estimates, err := h.ds.GetExerciseE1RM(ctx, start, end, uid, req.GetString("exercise", ""))
+	if err != nil {
+		h.log.Error("mcp get_strength_1rm", "error", err)
+		return mcp.NewToolResultError("query failed: " + err.Error()), nil
+	}
+
+	result, err := mcp.NewToolResultJSON(map[string]any{"data": estimates})
 	if err != nil {
 		return mcp.NewToolResultError("serialization failed"), nil
 	}

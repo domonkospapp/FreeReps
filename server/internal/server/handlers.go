@@ -127,9 +127,51 @@ func (s *Server) handleAlphaIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The derived tonnage series is computed from the rows just written.
+	if from, to, ok, err := s.db.TrainingMetricsRange(r.Context(), uid); err != nil {
+		s.log.Warn("reading training range after alpha ingest", "error", err)
+	} else if ok {
+		if _, err := s.db.RebuildTrainingMetrics(r.Context(), uid, from, to); err != nil {
+			s.log.Warn("rebuilding training metrics after alpha ingest", "error", err)
+		}
+	}
+
 	s.db.InvalidateAllAvailableMetrics()
 	go s.logImport(uid, "alpha", result, nil, durationMs)
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRebuildTrainingMetrics recomputes the derived tonnage series over the
+// user's full history. Needed once after the series is introduced, and after any
+// bulk change to workout_sets that bypassed the ingest paths.
+func (s *Server) handleRebuildTrainingMetrics(w http.ResponseWriter, r *http.Request) {
+	uid, ok := mustUserID(w, r)
+	if !ok {
+		return
+	}
+
+	from, to, hasData, err := s.db.TrainingMetricsRange(r.Context(), uid)
+	if err != nil {
+		s.log.Error("reading training range", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if !hasData {
+		writeJSON(w, http.StatusOK, map[string]any{"days_written": 0, "message": "no strength data"})
+		return
+	}
+
+	n, err := s.db.RebuildTrainingMetrics(r.Context(), uid, from, to)
+	if err != nil {
+		s.log.Error("rebuilding training metrics", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"days_written": n,
+		"from":         from.Format("2006-01-02"),
+		"to":           to.Format("2006-01-02"),
+	})
 }
 
 func (s *Server) handleUnifiedImport(w http.ResponseWriter, r *http.Request) {
@@ -178,6 +220,7 @@ var cumulativeMetrics = []string{
 	"distance_swimming", "distance_wheelchair", "flights_climbed",
 	"apple_move_time", "apple_stand_time", "push_count",
 	"swimming_stroke_count", "distance_downhill_snow_sports",
+	storage.TrainingTonnageMetric,
 }
 
 func (s *Server) handleLatestMetrics(w http.ResponseWriter, r *http.Request) {

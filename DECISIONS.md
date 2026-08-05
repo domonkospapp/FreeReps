@@ -19,6 +19,40 @@ is as recorded there; where the record named no alternative, none is claimed.
 
 ---
 
+## 2026-08-05 — How training volume and estimated strength are computed
+
+**Decided:** 2026-08-05
+
+**Decision.** Three conventions underlie every strength aggregate:
+
+- **Volume per muscle group is reported twice** — as sets whose exercise targets
+  the muscle directly, and as a weighted count that adds assisting muscles at
+  0.5. Neither figure is presented as *the* volume.
+- **Estimated one-rep max uses Epley over repetitions plus reps in reserve**:
+  `kg × (1 + (reps + rir)/30)`. Sets without an effort rating are excluded.
+- **Effort is read from `effort_rir`**, the generated column that resolves RIR
+  and RPE, so both logging scales feed the same bands.
+
+**Reasoning.** Each of these is a convention, not a measurement. No data in this
+system says how much of a bench press the triceps carry, and Epley is a linear
+approximation that drifts above roughly ten effective repetitions. Reporting two
+volume figures keeps the 0.5 weighting from disappearing into a single number,
+which is what the 2026-02-19 decision against opaque scores asks for. The reps in
+reserve enter the strength estimate because a set stopped two short of failure
+demonstrates the strength of a longer set — leaving them out understates about
+half the sets in this history.
+
+**Also decided.** Every volume figure carries `approximate_pct` per muscle group
+and `unmapped_sets` per period. The first says how much of it rests on exercise
+names mapped onto a near equivalent, the second how many sets reach no catalog
+entry at all. A volume number without them would be a statement about an unknown
+fraction of the training.
+
+**Trigger to re-open.** A source that reports muscle involvement per set rather
+than per exercise, or an effort scale that does not map onto reps in reserve.
+
+---
+
 ## 2026-08-04 — Hevy replaces Alpha Progression, ingested by polling the event feed
 
 **Decided:** 2026-08-04

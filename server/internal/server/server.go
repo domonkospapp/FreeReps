@@ -160,6 +160,7 @@ func (s *Server) routes() {
 		r.Get("/api/v1/category-samples", s.handleGetCategorySamples)
 
 		// Settings / admin endpoints
+		r.Post("/api/v1/training-metrics/rebuild", s.handleRebuildTrainingMetrics)
 		r.Get("/api/v1/stats", s.handleStats)
 		r.Get("/api/v1/import-logs", s.handleImportLogs)
 

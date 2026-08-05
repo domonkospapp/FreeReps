@@ -145,7 +145,27 @@ func (s *Syncer) SyncUser(ctx context.Context, userID int) {
 		return
 	}
 
+	s.rebuildTrainingMetrics(ctx, userID, creds, stats)
 	s.logImport(ctx, userID, start, stats, nil)
+}
+
+// rebuildTrainingMetrics refreshes the derived tonnage series for the days this
+// cycle touched, so training volume stays correlatable against sleep and HRV.
+//
+// The window starts at the ingest cutoff rather than at the oldest workout
+// touched: recomputing a few months of daily sums is one grouped query, and
+// tracking exact dates per event would buy nothing.
+func (s *Syncer) rebuildTrainingMetrics(ctx context.Context, userID int, creds *storage.HevyCredentials, stats *syncStats) {
+	if stats.setsInserted == 0 && stats.workoutsDeleted == 0 {
+		return
+	}
+	n, err := s.db.RebuildTrainingMetrics(ctx, userID, creds.SyncFrom, time.Now())
+	if err != nil {
+		stats.errors = append(stats.errors, err.Error())
+		s.log.Warn("rebuilding training metrics failed", "error", err)
+		return
+	}
+	s.log.Info("training metrics rebuilt", "days", n)
 }
 
 // syncExerciseTemplates refreshes the exercise catalog. A failure here is

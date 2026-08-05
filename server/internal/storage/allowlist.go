@@ -53,6 +53,9 @@ var defaultVisibleMetrics = map[string]bool{
 	"oura_readiness_score": true,
 	"oura_sleep_score":     true,
 	"oura_activity_score":  true,
+	// Derived from workout_sets; the point of it is being correlatable against
+	// the recovery metrics above, which needs it visible in the picker.
+	TrainingTonnageMetric: true,
 }
 
 // GetAllowedMetrics returns all metrics in the allowlist.

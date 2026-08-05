@@ -67,20 +67,23 @@ func dedupCTEMultiMetric(priorities []string, userIDParam, inClause string) stri
 
 // cumulativeMetrics are metrics that should be summed (not averaged) when aggregating.
 var cumulativeMetrics = map[string]bool{
-	"active_energy":                true,
-	"basal_energy_burned":          true,
-	"apple_exercise_time":          true,
-	"step_count":                   true,
-	"distance_walking_running":     true,
-	"distance_cycling":             true,
-	"distance_swimming":            true,
-	"distance_wheelchair":          true,
-	"flights_climbed":              true,
-	"apple_move_time":              true,
-	"apple_stand_time":             true,
-	"push_count":                   true,
-	"swimming_stroke_count":        true,
+	"active_energy":                 true,
+	"basal_energy_burned":           true,
+	"apple_exercise_time":           true,
+	"step_count":                    true,
+	"distance_walking_running":      true,
+	"distance_cycling":              true,
+	"distance_swimming":             true,
+	"distance_wheelchair":           true,
+	"flights_climbed":               true,
+	"apple_move_time":               true,
+	"apple_stand_time":              true,
+	"push_count":                    true,
+	"swimming_stroke_count":         true,
 	"distance_downhill_snow_sports": true,
+	// Daily training volume: a week's figure is the sum of its days, not their
+	// average.
+	TrainingTonnageMetric: true,
 }
 
 // maxParamsPerBatch is the PostgreSQL extended protocol parameter limit (65535)

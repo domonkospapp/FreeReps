@@ -123,6 +123,9 @@ type WorkoutSetRow struct {
 	ExerciseName       string
 	ExerciseTemplateID string
 	ExerciseNotes      string
+	// PrimaryMuscleGroup is resolved from the exercise catalog on read and is
+	// never written. Empty when the exercise reaches no catalog entry.
+	PrimaryMuscleGroup string
 	Equipment          string
 	TargetReps         int
 	IsWarmup           bool
