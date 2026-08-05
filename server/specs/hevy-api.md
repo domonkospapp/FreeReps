@@ -30,9 +30,37 @@ imported nothing while a logged test workout sat in the account, and the import
 log reported success because no error had occurred. The first sync therefore
 walks `/v1/workouts`, and only later runs use the feed.
 
-Not consumed yet, relevant for later stages: `/v1/exercise_templates` (muscle
-groups and equipment per exercise, `pageSize` up to 100), `/v1/routines`,
-`/v1/exercise_history/{id}`, `/v1/body_measurements`.
+| `GET` | `/v1/exercise_templates` | Exercise catalog; the only source of muscle groups |
+
+Not consumed yet: `/v1/routines`, `/v1/exercise_history/{id}`,
+`/v1/body_measurements`.
+
+## `GET /v1/exercise_templates`
+
+Query parameters: `page`, `pageSize` (up to **100**, ten times what the workout
+endpoints allow). Returns `{ page, page_count, exercise_templates[] }`.
+
+```json
+{
+  "id": "79D0BB3A",
+  "title": "Bench Press (Barbell)",
+  "type": "weight_reps",
+  "primary_muscle_group": "chest",
+  "secondary_muscle_groups": ["triceps", "shoulders"],
+  "equipment_category": "",
+  "is_custom": false
+}
+```
+
+`primary_muscle_group` and `secondary_muscle_groups` draw on a fixed vocabulary
+of 20 values (`chest`, `lats`, `upper_back`, `quadriceps`, `glutes`, `traps`, …).
+This is the only place muscle data comes from; FreeReps derives none of it.
+
+**`equipment_category` arrives empty.** The specification declares it as an enum
+and the schema documents nine values, but all 451 entries returned on 2026-08-04
+carried an empty string. The equipment is instead encoded in the title —
+`(Barbell)`, `(Dumbbell)`, `(Smith Machine)`. Do not rely on the field without
+checking it again.
 
 ## Pagination
 
