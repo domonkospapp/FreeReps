@@ -3,6 +3,7 @@ import Sparkline from "../Sparkline";
 import { useIsDesktop } from "../../hooks/useMediaQuery";
 import { deltaColor } from "../../utils/metricDirection";
 import { formatTimeAgo } from "../../utils/format";
+import { sourceLabel } from "../../utils/sourceLabel";
 import { displayDelta, displayValue } from "./metricDisplay";
 
 /** HRV is the accent one because it is the metric the user watches. */
@@ -115,7 +116,7 @@ function HeroCell({
                 color: "var(--color-neutral-600)",
               }}
             >
-              {m.source || (m.time ? formatTimeAgo(m.time) : "")}
+              {m.source ? sourceLabel(m.source) : m.time ? formatTimeAgo(m.time) : ""}
             </span>
           </>
         ) : (

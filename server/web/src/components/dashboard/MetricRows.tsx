@@ -2,6 +2,7 @@ import type { FrontPageMetric } from "../../api";
 import Sparkline from "../Sparkline";
 import { deltaColor } from "../../utils/metricDirection";
 import { formatTimeAgo } from "../../utils/format";
+import { sourceLabel } from "../../utils/sourceLabel";
 import { displayDelta, displayValue, type MetricGroupSection } from "./metricDisplay";
 
 interface Props {
@@ -56,7 +57,7 @@ export default function MetricRows({ groups, loading }: Props) {
 }
 
 function MetricRow({ metric: m }: { metric: FrontPageMetric }) {
-  const meta = [m.source, m.time ? formatTimeAgo(m.time) : null]
+  const meta = [sourceLabel(m.source), m.time ? formatTimeAgo(m.time) : null]
     .filter(Boolean)
     .join(" · ");
 

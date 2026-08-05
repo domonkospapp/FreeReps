@@ -57,6 +57,18 @@ band, gridlines, baseline, two polylines — needs no plotting library.
 **The stated range is p05–p95, not min–max.** One dropped sensor reading would
 widen a min/max range enough to make the number meaningless.
 
+**Zone bands derive from the 99.9th percentile heart rate, not the maximum.**
+Verified against the deployed instance, `MAX()` returned 210 bpm from a single
+strap dropout. At that peak the second zone starts at 126, which put whole
+strength sessions in zone 1 and made the bars carry no information. A genuine
+maximum effort contributes many samples near the top; one artefact contributes
+one.
+
+**An empty `source` reads as "Apple Health", not "—".** HealthKit writes through
+Health Auto Export without setting the field, and the priority rules already
+match it as the empty string. Six of seventeen visible metrics were showing an
+em dash for an origin that is in fact known.
+
 **`GetLatestMetrics` now resolves source priority.** It previously picked by
 timestamp alone, so a lower-priority device writing a minute later decided both
 the shown value and the source name — beside a sparkline computed from the

@@ -18,6 +18,7 @@ import { useIsDesktop } from "../hooks/useMediaQuery";
 import { deltaColor } from "../utils/metricDirection";
 import { formatFullDate, formatTimeAgo } from "../utils/format";
 import { queryMessage, queryState } from "../utils/queryState";
+import { sourceLabel } from "../utils/sourceLabel";
 
 const RANGES = ["1d", "7d", "30d", "90d", "1y"] as const;
 type DashboardRange = (typeof RANGES)[number];
@@ -317,7 +318,7 @@ function MetricRow({ metric: m }: { metric: FrontPageMetric }) {
         />
       </td>
       <td style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
-        {m.source || "—"}
+        {sourceLabel(m.source)}
       </td>
       <td style={{ fontSize: 12.5, color: "var(--color-neutral-600)" }}>
         {m.time ? formatTimeAgo(m.time) : "—"}

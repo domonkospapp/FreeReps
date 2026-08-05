@@ -20,21 +20,29 @@ type WorkoutZones struct {
 	Shares    []float64 `json:"shares"`
 }
 
-// GetMaxHeartRate returns the highest heart rate ever recorded for the user,
-// which is what the zone bands are computed from. Returns 0 when no workout
-// carries heart rate data.
+// GetMaxHeartRate returns the heart rate the zone bands are computed from.
+// Returns 0 when no workout carries heart rate data.
+//
+// This is the 99.9th percentile, not the maximum. A single spurious sample —
+// a chest strap dropout reads as 210 bpm — would otherwise set every band: at
+// 210 the second zone starts at 126, which puts whole strength sessions in
+// zone 1 and makes the bars say nothing. The percentile keeps one bad sample
+// from redefining the scale while still tracking a genuine peak, since a real
+// maximum effort contributes many samples near the top, not one.
 func (db *DB) GetMaxHeartRate(ctx context.Context, userID int) (float64, error) {
-	var max *float64
+	var peak *float64
 	err := db.Pool.QueryRow(ctx,
-		`SELECT MAX(COALESCE(max_bpm, avg_bpm)) FROM workout_heart_rate WHERE user_id = $1`,
-		userID).Scan(&max)
+		`SELECT PERCENTILE_CONT(0.999) WITHIN GROUP (ORDER BY COALESCE(max_bpm, avg_bpm))
+		 FROM workout_heart_rate
+		 WHERE user_id = $1 AND COALESCE(max_bpm, avg_bpm) IS NOT NULL`,
+		userID).Scan(&peak)
 	if err != nil {
-		return 0, fmt.Errorf("querying max heart rate: %w", err)
+		return 0, fmt.Errorf("querying peak heart rate: %w", err)
 	}
-	if max == nil {
+	if peak == nil {
 		return 0, nil
 	}
-	return *max, nil
+	return *peak, nil
 }
 
 // GetWorkoutZones returns the per-zone share of each workout in the range.

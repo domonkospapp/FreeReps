@@ -6,13 +6,10 @@ import {
   saveSourcePriority,
 } from "../../api";
 import { formatTimeAgo } from "../../utils/format";
+import { sourceLabelLong } from "../../utils/sourceLabel";
 import { TabHeader } from "./parts";
 
 const DEFAULT_CATEGORY = "_default";
-
-function sourceLabel(s: string): string {
-  return s === "" ? "Apple Health (HealthKit)" : s;
-}
 
 /**
  * Surfaces the source-priority logic that already runs in the ingest path but
@@ -100,7 +97,7 @@ export default function SourcesTab() {
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ font: "600 14px var(--font-body)" }}>
-                  {sourceLabel(src)}
+                  {sourceLabelLong(src)}
                 </div>
                 <div
                   style={{
@@ -136,7 +133,7 @@ export default function SourcesTab() {
                   style={{ fontSize: 11, padding: "4px 8px" }}
                   disabled={i === 0}
                   onClick={() => move(i, -1)}
-                  aria-label={`Move ${sourceLabel(src)} up`}
+                  aria-label={`Move ${sourceLabelLong(src)} up`}
                 >
                   ↑
                 </button>
@@ -146,7 +143,7 @@ export default function SourcesTab() {
                   style={{ fontSize: 11, padding: "4px 8px" }}
                   disabled={i === order.length - 1}
                   onClick={() => move(i, 1)}
-                  aria-label={`Move ${sourceLabel(src)} down`}
+                  aria-label={`Move ${sourceLabelLong(src)} down`}
                 >
                   ↓
                 </button>
