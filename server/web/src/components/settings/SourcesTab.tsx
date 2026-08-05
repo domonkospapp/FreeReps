@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
+  deleteSourcePriority,
   fetchImportLogs,
   fetchSourcePriority,
   saveSourcePriority,
@@ -70,6 +71,22 @@ export default function SourcesTab() {
     config.data?.default ??
     [];
   const changed = order.join("|") !== saved.join("|");
+
+  // Every rule that is not the default one. The ingest path honours these, so
+  // hiding them would make the order above look absolute when it is not.
+  const overrides = (config.data?.rules ?? []).filter(
+    (r) => r.category !== DEFAULT_CATEGORY,
+  );
+
+  async function removeOverride(category: string) {
+    setError(null);
+    try {
+      await deleteSourcePriority(category);
+      queryClient.invalidateQueries({ queryKey: ["source-priority"] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Remove failed");
+    }
+  }
 
   return (
     <>
@@ -169,6 +186,63 @@ export default function SourcesTab() {
           {saving ? "Saving…" : "Save order"}
         </button>
       </div>
+
+      {overrides.length > 0 ? (
+        <div style={{ paddingTop: 32 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700 }}>Category exceptions</h3>
+          <p
+            style={{
+              font: "400 12px/1.5 var(--font-body)",
+              color: "var(--color-neutral-600)",
+              margin: "6px 0 0",
+              maxWidth: "62ch",
+            }}
+          >
+            These categories ignore the order above and use their own. Without
+            this list the order above would look like it governed everything.
+          </p>
+          <div
+            style={{ borderTop: "2px solid var(--color-text)", marginTop: 12 }}
+          >
+            {overrides.map((rule) => (
+              <div
+                key={rule.category}
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 16,
+                  padding: "12px 0",
+                  borderBottom: "1px solid var(--color-neutral-300)",
+                }}
+              >
+                <span
+                  className="kick"
+                  style={{ width: 140, flex: "none", color: "var(--color-text)" }}
+                >
+                  {rule.category}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    font: "400 13px var(--font-body)",
+                    color: "var(--color-neutral-700)",
+                  }}
+                >
+                  {rule.sources.map(sourceLabelLong).join(" → ")}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, flex: "none" }}
+                  onClick={() => removeOverride(rule.category)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
