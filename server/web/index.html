@@ -1,13 +1,32 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" data-theme="auto">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>FreeReps</title>
+
+    <link rel="icon" href="/app-icon/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/app-icon/apple-touch-icon-180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="FreeReps" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#f3f2f2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#171615" media="(prefers-color-scheme: dark)" />
+
+    <!-- Applies the stored preference before first paint. Without it the page
+         renders on the light ground for one frame when dark is selected. -->
+    <script>
+      try {
+        var t = localStorage.getItem("freereps.theme");
+        if (t === "light" || t === "dark") {
+          document.documentElement.setAttribute("data-theme", t);
+        }
+      } catch (e) {}
+    </script>
   </head>
-  <body class="bg-zinc-950 text-zinc-100 min-h-screen">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

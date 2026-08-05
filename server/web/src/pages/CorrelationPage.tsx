@@ -1,224 +1,552 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { fetchCorrelation } from "../api";
-import TimeRangeSelector from "../components/TimeRangeSelector";
-import ScatterChart from "../components/correlation/ScatterChart";
-import OverlayChart from "../components/correlation/OverlayChart";
-import SavedViews, {
-  CorrelationView,
-} from "../components/correlation/SavedViews";
-import { useAvailableMetrics, type MetricGroup } from "../hooks/useMetrics";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
+import { fetchTimeSeries, type TimeSeriesPoint } from "../api";
+import DesktopOnly from "../components/DesktopOnly";
+import PageHeader from "../components/PageHeader";
+import RangeControl from "../components/RangeControl";
+import Scatter from "../components/correlation/Scatter";
+import { useAvailableMetrics } from "../hooks/useMetrics";
+import { useIsDesktop } from "../hooks/useMediaQuery";
+import { formatNumber, MINUS } from "../utils/format";
+import { linearRegression, pearsonR } from "../utils/stats";
+import { queryMessage, queryState } from "../utils/queryState";
 
-const PRESETS = [
-  { label: "Sleep vs HRV", x: "sleep_analysis", y: "heart_rate_variability" },
-  { label: "HRV vs RHR", x: "heart_rate_variability", y: "resting_heart_rate" },
-  { label: "Sleep vs RHR", x: "sleep_analysis", y: "resting_heart_rate" },
-  {
-    label: "Exercise vs HRV",
-    x: "apple_exercise_time",
-    y: "heart_rate_variability",
-  },
-];
+const RANGES = ["30d", "90d", "6m", "1y"] as const;
+type Range = (typeof RANGES)[number];
 
-import { daysFromRange, formatDateLabel, type TimeRange } from "../utils/timeRange";
+const RANGE_DAYS: Record<Range, number> = {
+  "30d": 30,
+  "90d": 90,
+  "6m": 182,
+  "1y": 365,
+};
 
-type Mode = "scatter" | "overlay";
+const LAGS = [0, 1, 2, 3];
 
-function MetricSelect({
-  value,
-  onChange,
-  label,
-  groups,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  label: string;
-  groups: MetricGroup[];
-}) {
+const CAVEAT =
+  "Correlation is not causation, and with 34 metrics some pairs will look related by chance. Treat anything under r = 0.3 as noise.";
+
+export default function CorrelationPage() {
+  const isDesktop = useIsDesktop();
+  const [params, setParams] = useSearchParams();
+  const { groups, lookup } = useAvailableMetrics();
+
+  const range = (params.get("range") as Range) ?? "90d";
+  const lag = parseInt(params.get("lag") ?? "0", 10);
+  const xMetric = params.get("x") ?? "sleep_analysis";
+  const yMetric = params.get("y") ?? "heart_rate_variability";
+
+  const days = RANGE_DAYS[range];
+  const end = new Date();
+  // Fetch a few extra days so a lagged pairing does not lose the window's edge.
+  const start = new Date(end.getTime() - (days + LAGS.length) * 86400000);
+  const endISO = end.toISOString().split("T")[0];
+  const startISO = start.toISOString().split("T")[0];
+
+  const xQuery = useQuery({
+    queryKey: ["timeseries", xMetric, startISO, endISO, "daily"],
+    queryFn: () => fetchTimeSeries(xMetric, startISO, endISO, "daily"),
+    enabled: isDesktop && !!xMetric,
+  });
+  const yQuery = useQuery({
+    queryKey: ["timeseries", yMetric, startISO, endISO, "daily"],
+    queryFn: () => fetchTimeSeries(yMetric, startISO, endISO, "daily"),
+    enabled: isDesktop && !!yMetric,
+  });
+
+  const xMeta = lookup.get(xMetric);
+  const yMeta = lookup.get(yMetric);
+
+  const byLag = useMemo(() => {
+    const xs = xQuery.data ?? [];
+    const ys = yQuery.data ?? [];
+    return LAGS.map((l) => {
+      const pairs = pairWithLag(xs, ys, l, xMeta?.multiplier ?? 1, yMeta?.multiplier ?? 1);
+      return { lag: l, pairs, r: pearsonR(pairs.map((p) => p.x), pairs.map((p) => p.y)) };
+    });
+  }, [xQuery.data, yQuery.data, xMeta, yMeta]);
+
+  const active = byLag.find((b) => b.lag === lag) ?? byLag[0];
+
+  if (!isDesktop) return <DesktopOnly title="Correlations" />;
+
+  const setParam = (key: string, value: string) => {
+    const p = new URLSearchParams(params);
+    p.set(key, value);
+    setParams(p, { replace: true });
+  };
+
+  const state =
+    queryState(xQuery) === "ready" ? queryState(yQuery) : queryState(xQuery);
+  const message = queryMessage(state, xQuery.error ?? yQuery.error);
+
+  const sameMetric = xMetric === yMetric;
+  const r = active?.r ?? null;
+  const fit =
+    active && active.pairs.length >= 3
+      ? linearRegression(
+          active.pairs.map((p) => p.x),
+          active.pairs.map((p) => p.y),
+        )
+      : null;
+
   return (
-    <div>
-      <label className="block text-xs text-zinc-500 mb-1">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-md px-3 py-1.5 text-sm
-                   focus:outline-none focus:ring-1 focus:ring-cyan-500"
+    <>
+      <PageHeader
+        kicker={`${days} days · ${active?.pairs.length ?? 0} paired days`}
+        title="Correlations"
+        actions={
+          <RangeControl
+            options={RANGES}
+            value={range}
+            onChange={(v) => setParam("range", v)}
+            name="correlation-range"
+          />
+        }
+      />
+
+      <div
+        className="page-x"
+        style={{ display: "flex", gap: 32, alignItems: "flex-end", paddingBottom: 20 }}
       >
-        {groups.map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {group.metrics.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
+        <div className="field" style={{ width: 280 }}>
+          <label htmlFor="corr-x">X axis</label>
+          <select
+            id="corr-x"
+            className="input"
+            value={xMetric}
+            onChange={(e) => setParam("x", e.target.value)}
+          >
+            {groups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.metrics.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
-          </optgroup>
-        ))}
-      </select>
+          </select>
+        </div>
+
+        <div className="field" style={{ width: 280 }}>
+          <label htmlFor="corr-y">Y axis</label>
+          <select
+            id="corr-y"
+            className="input"
+            value={yMetric}
+            onChange={(e) => setParam("y", e.target.value)}
+          >
+            {groups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.metrics.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
+        <div className="field" style={{ width: 200 }}>
+          <label htmlFor="corr-lag">Lag</label>
+          <select
+            id="corr-lag"
+            className="input"
+            value={lag}
+            onChange={(e) => setParam("lag", e.target.value)}
+          >
+            <option value={0}>Same day</option>
+            <option value={1}>1 day</option>
+            <option value={2}>2 days</option>
+            <option value={3}>3 days</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", borderTop: "2px solid var(--color-text)" }}>
+        <div
+          className="page-x"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            borderRight: "2px solid var(--color-text)",
+            paddingTop: 26,
+            paddingBottom: 34,
+          }}
+        >
+          {sameMetric ? (
+            <p style={{ color: "var(--color-neutral-600)", fontSize: 13 }}>
+              Pick two different metrics. A metric correlates with itself
+              perfectly, which says nothing.
+            </p>
+          ) : message ? (
+            <p style={{ color: "var(--color-neutral-600)", fontSize: 13 }}>
+              {message}
+            </p>
+          ) : state === "loading" ? (
+            <div className="skel" style={{ width: "100%", height: 520 }} />
+          ) : (
+            <>
+              <Scatter pairs={active?.pairs ?? []} />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginTop: 8,
+                }}
+              >
+                <span className="kick">{xMeta?.label ?? xMetric}</span>
+                <span className="kick">
+                  {active?.pairs.length ?? 0} paired days
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ width: 440, flex: "none" }}>
+          <PearsonBlock
+            r={sameMetric ? null : r}
+            xLabel={xMeta?.label ?? xMetric}
+            yLabel={yMeta?.label ?? yMetric}
+          />
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              borderBottom: "2px solid var(--color-text)",
+            }}
+          >
+            <FitStat
+              label="R²"
+              value={r != null ? (r * r).toFixed(3) : "—"}
+              border
+            />
+            <FitStat
+              label="Slope"
+              value={fit ? formatNumber(fit.slope, 3) : "—"}
+            />
+            <FitStat
+              label="Paired days"
+              value={String(active?.pairs.length ?? 0)}
+              border
+              top
+            />
+            <FitStat
+              label="Lag applied"
+              value={lag === 0 ? "Same day" : `${lag} day${lag > 1 ? "s" : ""}`}
+              top
+            />
+          </div>
+
+          <div className="page-x" style={{ paddingTop: 22, paddingBottom: 10 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700 }}>Correlation by lag</h3>
+            <p
+              style={{
+                font: "400 11.5px var(--font-body)",
+                color: "var(--color-neutral-600)",
+                margin: "6px 0 0",
+              }}
+            >
+              Y shifted forward by n days.
+            </p>
+          </div>
+
+          <table className="table" style={{ fontSize: 13.5 }}>
+            <thead>
+              <tr>
+                <th>Lag</th>
+                <th style={{ textAlign: "right", width: 70 }}>r</th>
+                <th style={{ width: 150 }}>Strength</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byLag.map((b) => (
+                <tr key={b.lag}>
+                  <td
+                    style={{
+                      fontWeight: b.lag === lag ? 700 : 400,
+                      color:
+                        b.lag === lag
+                          ? "var(--color-text)"
+                          : "var(--color-neutral-600)",
+                    }}
+                  >
+                    {b.lag === 0 ? "Same day" : `${b.lag} day${b.lag > 1 ? "s" : ""}`}
+                  </td>
+                  <td
+                    className="num"
+                    style={{
+                      textAlign: "right",
+                      fontWeight: b.lag === lag ? 700 : 400,
+                      color:
+                        b.lag === lag
+                          ? "var(--color-text)"
+                          : "var(--color-neutral-600)",
+                    }}
+                  >
+                    {b.r != null ? formatR(b.r) : "—"}
+                  </td>
+                  <td>
+                    <DivergingBar value={b.r} active={b.lag === lag} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div
+            className="page-x"
+            style={{
+              borderTop: "1px solid var(--color-neutral-300)",
+              paddingTop: 16,
+              paddingBottom: 40,
+            }}
+          >
+            <p
+              style={{
+                font: "400 12px/1.5 var(--font-body)",
+                color: "var(--color-neutral-600)",
+                margin: 0,
+              }}
+            >
+              {CAVEAT}
+            </p>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: 12.5, marginTop: 12, marginLeft: -4 }}
+              disabled={!active || active.pairs.length === 0}
+              onClick={() =>
+                exportPairs(active?.pairs ?? [], xMetric, yMetric, lag)
+              }
+            >
+              Export pairs as CSV →
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function PearsonBlock({
+  r,
+  xLabel,
+  yLabel,
+}: {
+  r: number | null;
+  xLabel: string;
+  yLabel: string;
+}) {
+  const strong = r != null && Math.abs(r) >= 0.4;
+  const color = strong ? "var(--color-accent)" : "var(--color-text)";
+
+  return (
+    <div
+      className="page-x"
+      style={{
+        paddingTop: 26,
+        paddingBottom: 22,
+        borderBottom: "2px solid var(--color-text)",
+      }}
+    >
+      <div className="kick">Pearson r</div>
+      <div
+        className="num"
+        style={{
+          font: "800 76px/1 var(--font-heading)",
+          letterSpacing: "-0.04em",
+          marginTop: 10,
+          color,
+        }}
+      >
+        {r != null ? formatR(r) : "—"}
+      </div>
+      <div
+        style={{
+          font: "600 13px var(--font-body)",
+          color,
+          marginTop: 12,
+        }}
+      >
+        {r != null ? strengthPhrase(r) : "No pairing"}
+      </div>
+      <p
+        style={{
+          font: "400 12.5px/1.55 var(--font-body)",
+          color: "var(--color-neutral-700)",
+          margin: "8px 0 0",
+        }}
+      >
+        {r == null
+          ? "Pick two different metrics with overlapping days."
+          : sentenceFor(r, xLabel, yLabel)}
+      </p>
     </div>
   );
 }
 
-export default function CorrelationPage() {
-  const { visibleGroups: groups, lookup } = useAvailableMetrics();
-  const [xMetric, setXMetric] = useState("heart_rate_variability");
-  const [yMetric, setYMetric] = useState("resting_heart_rate");
-  const [timeRange, setTimeRange] = useState<TimeRange>("90d");
-  const [mode, setMode] = useState<Mode>("scatter");
-  const [offset, setOffset] = useState(0);
-
-  const days = daysFromRange(timeRange);
-  const endDate = new Date(Date.now() - offset * days * 86400000);
-  const startDate = new Date(endDate.getTime() - days * 86400000);
-  const end = endDate.toISOString().split("T")[0];
-  const start = startDate.toISOString().split("T")[0];
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["correlation", xMetric, yMetric, start, end],
-    queryFn: () => fetchCorrelation(xMetric, yMetric, start, end),
-    enabled: xMetric !== yMetric,
-  });
-
-  const handleLoadView = (view: CorrelationView) => {
-    setXMetric(view.xMetric);
-    setYMetric(view.yMetric);
-    setTimeRange(view.timeRange as TimeRange);
-    setMode(view.mode);
-  };
-
+function FitStat({
+  label,
+  value,
+  border,
+  top,
+}: {
+  label: string;
+  value: string;
+  border?: boolean;
+  top?: boolean;
+}) {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100">Correlations</h2>
-        <TimeRangeSelector
-          value={timeRange}
-          onChange={(v) => { setTimeRange(v as TimeRange); setOffset(0); }}
-          options={["1d", "7d", "30d", "90d", "1y"]}
-          onPrev={() => setOffset((o) => o + 1)}
-          onNext={() => setOffset((o) => Math.max(0, o - 1))}
-          canGoNext={offset > 0}
-          dateLabel={formatDateLabel(start, end)}
-        />
+    <div
+      style={{
+        paddingTop: 16,
+        paddingBottom: 16,
+        /* The left column aligns to the page edge; the right one only needs
+           clearance from the divider. */
+        paddingLeft: border ? "var(--page-x)" : 20,
+        paddingRight: border ? 20 : "var(--page-x)",
+        borderRight: border ? "1px solid var(--color-neutral-300)" : undefined,
+        borderTop: top ? "1px solid var(--color-neutral-300)" : undefined,
+      }}
+    >
+      <div className="kick">{label}</div>
+      <div
+        className="num"
+        style={{
+          font: "800 22px/1 var(--font-heading)",
+          letterSpacing: "-0.02em",
+          marginTop: 8,
+        }}
+      >
+        {value}
       </div>
-
-      {/* Presets */}
-      <div className="flex flex-wrap gap-2">
-        {PRESETS.map((p) => (
-          <button
-            key={p.label}
-            onClick={() => {
-              setXMetric(p.x);
-              setYMetric(p.y);
-            }}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              xMetric === p.x && yMetric === p.y
-                ? "bg-cyan-600 text-white"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Metric selectors */}
-      <div className="flex flex-wrap items-end gap-4">
-        <MetricSelect value={xMetric} onChange={setXMetric} label="X Axis" groups={groups} />
-        <span className="text-zinc-500 text-sm pb-1">vs</span>
-        <MetricSelect value={yMetric} onChange={setYMetric} label="Y Axis" groups={groups} />
-
-        {/* Mode toggle */}
-        <div className="flex gap-1">
-          <button
-            onClick={() => setMode("scatter")}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              mode === "scatter"
-                ? "bg-cyan-600 text-white"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-            }`}
-          >
-            Scatter
-          </button>
-          <button
-            onClick={() => setMode("overlay")}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              mode === "overlay"
-                ? "bg-cyan-600 text-white"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-            }`}
-          >
-            Overlay
-          </button>
-        </div>
-      </div>
-
-      {/* Saved views */}
-      <SavedViews
-        current={{ xMetric, yMetric, timeRange, mode }}
-        onLoad={handleLoadView}
-      />
-
-      {/* Same metric warning */}
-      {xMetric === yMetric && (
-        <div className="text-amber-500 text-sm p-4 bg-zinc-900 rounded-lg">
-          Select two different metrics to see their correlation.
-        </div>
-      )}
-
-      {/* Chart */}
-      {xMetric !== yMetric && (
-        <>
-          {isLoading ? (
-            <div className="bg-zinc-900 rounded-lg p-6 h-[390px] animate-pulse" />
-          ) : data?.points && data.points.length > 0 ? (
-            <>
-              {/* Pearson R badge */}
-              {data.pearson_r != null && (
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="text-zinc-500">Pearson r =</span>
-                  <span
-                    className={`font-mono font-medium ${
-                      Math.abs(data.pearson_r) > 0.5
-                        ? "text-cyan-400"
-                        : "text-zinc-400"
-                    }`}
-                  >
-                    {data.pearson_r.toFixed(3)}
-                  </span>
-                  <span className="text-zinc-600">
-                    ({data.count} data points)
-                  </span>
-                </div>
-              )}
-
-              {/* Low data warning */}
-              {data.count < 7 && (
-                <div className="text-amber-500 text-sm p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
-                  Low data overlap — correlation may not be reliable.
-                </div>
-              )}
-
-              {mode === "scatter" ? (
-                <ScatterChart
-                  points={data.points}
-                  xLabel={lookup.get(xMetric)?.label ?? xMetric}
-                  yLabel={lookup.get(yMetric)?.label ?? yMetric}
-                />
-              ) : (
-                <OverlayChart
-                  points={data.points}
-                  xLabel={lookup.get(xMetric)?.label ?? xMetric}
-                  yLabel={lookup.get(yMetric)?.label ?? yMetric}
-                />
-              )}
-            </>
-          ) : (
-            <div className="text-zinc-500 text-sm p-4 bg-zinc-900 rounded-lg">
-              No overlapping data found for these metrics in the selected time
-              range.
-            </div>
-          )}
-        </>
-      )}
     </div>
   );
+}
+
+/** A fill that grows right from the centre for positive r, left for negative. */
+function DivergingBar({
+  value,
+  active,
+}: {
+  value: number | null;
+  active: boolean;
+}) {
+  const magnitude = value == null ? 0 : Math.min(Math.abs(value), 1) * 50;
+  const color = active ? "var(--color-accent)" : "var(--color-neutral-500)";
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        height: 10,
+        background: "var(--color-neutral-200)",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: 0,
+          bottom: 0,
+          width: 1,
+          background: "var(--color-neutral-500)",
+        }}
+      />
+      {value != null ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: value >= 0 ? "50%" : `${50 - magnitude}%`,
+            width: `${magnitude}%`,
+            background: color,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function strengthPhrase(r: number): string {
+  const a = Math.abs(r);
+  const direction = r >= 0 ? "positive" : "negative";
+  if (a >= 0.6) return `Strong ${direction} association`;
+  if (a >= 0.4) return `Moderate ${direction} association`;
+  if (a >= 0.25) return `Weak ${direction} association`;
+  return "Negligible association";
+}
+
+function sentenceFor(r: number, xLabel: string, yLabel: string): string {
+  const a = Math.abs(r);
+  if (a < 0.25) {
+    return `${xLabel} and ${yLabel} move independently over this window.`;
+  }
+  // Labels keep their own casing: lowercasing would turn HRV into hrv.
+  return r >= 0
+    ? `Over this window, days with a higher ${xLabel} tend to come with a higher ${yLabel}.`
+    : `Over this window, days with a higher ${xLabel} tend to come with a lower ${yLabel}.`;
+}
+
+/** r reads better with the real minus sign and a fixed two decimals. */
+function formatR(r: number): string {
+  const body = Math.abs(r).toFixed(2);
+  return r < 0 ? `${MINUS}${body}` : body;
+}
+
+/**
+ * Pairs the two series by date, shifting Y forward by `lag` days. Only days
+ * where both sides carry a value become a pair.
+ */
+function pairWithLag(
+  xs: TimeSeriesPoint[],
+  ys: TimeSeriesPoint[],
+  lag: number,
+  xMultiplier: number,
+  yMultiplier: number,
+): { x: number; y: number }[] {
+  const yByDay = new Map<string, number>();
+  for (const p of ys) {
+    if (p.avg != null) yByDay.set(dayKey(p.time), p.avg * yMultiplier);
+  }
+
+  const pairs: { x: number; y: number }[] = [];
+  for (const p of xs) {
+    if (p.avg == null) continue;
+    const shifted = new Date(p.time);
+    shifted.setDate(shifted.getDate() + lag);
+    const y = yByDay.get(dayKey(shifted.toISOString()));
+    if (y != null) pairs.push({ x: p.avg * xMultiplier, y });
+  }
+  return pairs;
+}
+
+function dayKey(iso: string): string {
+  return iso.split("T")[0];
+}
+
+function exportPairs(
+  pairs: { x: number; y: number }[],
+  xMetric: string,
+  yMetric: string,
+  lag: number,
+) {
+  const rows = [
+    `${xMetric},${yMetric}_lag${lag}`,
+    ...pairs.map((p) => `${p.x},${p.y}`),
+  ];
+  const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${xMetric}-${yMetric}-lag${lag}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -3,6 +3,7 @@ import "leaflet/dist/leaflet.css";
 import { WorkoutRoute } from "../../api";
 import { useMemo } from "react";
 import type { LatLngTuple, LatLngBoundsExpression } from "leaflet";
+import { tokenColor } from "../../utils/tokenColor";
 
 interface Props {
   route: WorkoutRoute[];
@@ -39,23 +40,35 @@ export default function RouteMap({ route }: Props) {
   if (positions.length === 0 || !bounds) return null;
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-zinc-400 mb-3">Route</h3>
-      <div className="rounded-lg overflow-hidden h-80">
-        <MapContainer
-          bounds={bounds}
-          scrollWheelZoom={true}
-          style={{ height: "100%", width: "100%" }}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <Polyline
-            positions={positions}
-            pathOptions={{ color: "#22d3ee", weight: 3, opacity: 0.8 }}
-          />
-        </MapContainer>
+    <div style={{ marginTop: 30 }}>
+      <h2 style={{ fontSize: 19, fontWeight: 700 }}>Route</h2>
+      <div
+        style={{
+          borderTop: "2px solid var(--color-text)",
+          marginTop: 12,
+          paddingTop: 12,
+        }}
+      >
+        <div style={{ height: 320 }}>
+          <MapContainer
+            bounds={bounds}
+            scrollWheelZoom={true}
+            style={{ height: "100%", width: "100%" }}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <Polyline
+              positions={positions}
+              pathOptions={{
+                color: tokenColor("--color-accent", "#ec3013"),
+                weight: 3,
+                opacity: 0.9,
+              }}
+            />
+          </MapContainer>
+        </div>
       </div>
     </div>
   );

@@ -1,121 +1,165 @@
-import { SleepStage } from "../../api";
+import type { SleepStage } from "../../api";
+import { STAGE_LANES, stageColor } from "../../utils/stageColors";
 
-const STAGE_ORDER: Record<string, number> = {
-  Awake: 0,
-  REM: 1,
-  Core: 2,
-  Deep: 3,
-};
-
-const STAGE_COLORS: Record<string, string> = {
-  Deep: "#6366f1", // indigo-500
-  Core: "#3b82f6", // blue-500
-  REM: "#8b5cf6", // violet-500
-  Awake: "#f59e0b", // amber-500
-};
-
-const STAGE_LABELS = ["Awake", "REM", "Core", "Deep"];
+const LANE_HEIGHT = 44;
+const BLOCK_HEIGHT = 26;
+const LABEL_GUTTER = 52;
 
 interface Props {
   stages: SleepStage[];
+  /** The phone gets four 10px rows in a 108px SVG, without lane labels. */
+  compact?: boolean;
 }
 
-export default function Hypnogram({ stages }: Props) {
+/**
+ * Stage blocks positioned as percentages of the night, one lane per stage.
+ * Awake is the accent, so awakenings are the one thing that pops out of the
+ * plot.
+ */
+export default function Hypnogram({ stages, compact = false }: Props) {
   if (stages.length === 0) {
     return (
-      <div className="bg-zinc-900 rounded-lg p-6 text-zinc-500 text-sm">
-        No sleep stage data available.
-      </div>
+      <p style={{ color: "var(--color-neutral-600)", fontSize: 13 }}>
+        No stage data for this night.
+      </p>
     );
   }
 
-  const startMs = new Date(stages[0].StartTime).getTime();
-  const endMs = Math.max(
-    ...stages.map((s) => new Date(s.EndTime).getTime())
+  const startMs = Math.min(
+    ...stages.map((s) => new Date(s.StartTime).getTime()),
   );
+  const endMs = Math.max(...stages.map((s) => new Date(s.EndTime).getTime()));
   const totalMs = endMs - startMs;
   if (totalMs <= 0) return null;
 
-  // Generate hour labels — limit to ~5-6 ticks to avoid overlap
-  const totalHours = totalMs / 3600000;
-  const step = totalHours > 10 ? 3 : totalHours > 6 ? 2 : 1;
+  const blocks = stages.map((s, i) => {
+    const from = new Date(s.StartTime).getTime();
+    const to = new Date(s.EndTime).getTime();
+    const laneIndex = Math.max(
+      0,
+      STAGE_LANES.indexOf(s.Stage as (typeof STAGE_LANES)[number]),
+    );
+    return {
+      key: `${s.StartTime}-${i}`,
+      left: ((from - startMs) / totalMs) * 100,
+      // A two-minute awakening still has to render.
+      width: Math.max(((to - from) / totalMs) * 100, 0.45),
+      laneIndex,
+      color: stageColor(s.Stage),
+      title: s.Stage,
+    };
+  });
 
-  const firstTick = new Date(startMs);
-  firstTick.setMinutes(0, 0, 0);
-  firstTick.setTime(firstTick.getTime() + 3600000); // next full hour
-  // Align to step boundary
-  const tickHour = firstTick.getHours();
-  const alignedHour = Math.ceil(tickHour / step) * step;
-  firstTick.setHours(alignedHour, 0, 0, 0);
-
-  const hourLabels: { time: string; pct: number }[] = [];
-  let h = new Date(firstTick.getTime());
-  while (h.getTime() < endMs) {
-    const pct = ((h.getTime() - startMs) / totalMs) * 100;
-    if (pct > 2 && pct < 98) {
-      const hr = h.getHours().toString().padStart(2, "0");
-      hourLabels.push({ time: `${hr}:00`, pct });
-    }
-    h = new Date(h.getTime() + step * 3600000);
+  if (compact) {
+    const rowHeight = 10;
+    const gap = 16;
+    const height = (STAGE_LANES.length - 1) * gap + rowHeight;
+    return (
+      <svg
+        viewBox={`0 0 100 ${height}`}
+        preserveAspectRatio="none"
+        style={{ width: "100%", height: 108, display: "block" }}
+        role="img"
+        aria-label="Sleep stages through the night"
+      >
+        {blocks.map((b) => (
+          <rect
+            key={b.key}
+            x={b.left}
+            y={b.laneIndex * gap}
+            width={b.width}
+            height={rowHeight}
+            fill={b.color}
+          />
+        ))}
+      </svg>
+    );
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-zinc-400 mb-3">Hypnogram</h3>
-
-      <div className="flex gap-2">
-        {/* Y-axis labels */}
-        <div className="flex flex-col justify-between py-1 text-xs text-zinc-500 shrink-0 w-12">
-          {STAGE_LABELS.map((label) => (
-            <span key={label}>{label}</span>
-          ))}
-        </div>
-
-        {/* Chart area */}
-        <div className="flex-1 min-w-0">
-          <div className="relative h-32">
-            {stages.map((stage, i) => {
-              const sMs = new Date(stage.StartTime).getTime();
-              const eMs = new Date(stage.EndTime).getTime();
-              const left = ((sMs - startMs) / totalMs) * 100;
-              const width = ((eMs - sMs) / totalMs) * 100;
-              const stageIdx = STAGE_ORDER[stage.Stage] ?? 1;
-              const top = (stageIdx / 4) * 100;
-              const height = 25; // each lane is 25%
-              const color = STAGE_COLORS[stage.Stage] ?? "#71717a";
-
-              return (
-                <div
-                  key={i}
-                  className="absolute rounded-sm"
-                  style={{
-                    left: `${left}%`,
-                    width: `${Math.max(width, 0.3)}%`,
-                    top: `${top}%`,
-                    height: `${height}%`,
-                    backgroundColor: color,
-                    opacity: 0.85,
-                  }}
-                  title={`${stage.Stage} ${new Date(stage.StartTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(stage.EndTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-                />
-              );
-            })}
+    <div style={{ display: "flex" }}>
+      <div style={{ width: LABEL_GUTTER, flex: "none" }}>
+        {STAGE_LANES.map((lane) => (
+          <div
+            key={lane}
+            style={{
+              height: LANE_HEIGHT,
+              display: "flex",
+              alignItems: "center",
+              font: "400 11px var(--font-body)",
+              color: "var(--color-neutral-600)",
+            }}
+          >
+            {lane}
           </div>
+        ))}
+      </div>
 
-          {/* X-axis time labels */}
-          <div className="relative h-5 mt-1">
-            {hourLabels.map((hl) => (
-              <span
-                key={hl.pct}
-                className="absolute text-xs text-zinc-500 -translate-x-1/2"
-                style={{ left: `${hl.pct}%` }}
-              >
-                {hl.time}
-              </span>
-            ))}
-          </div>
-        </div>
+      <div
+        style={{
+          position: "relative",
+          flex: 1,
+          height: STAGE_LANES.length * LANE_HEIGHT,
+        }}
+      >
+        {STAGE_LANES.map((lane, i) => (
+          <div
+            key={lane}
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: (i + 1) * LANE_HEIGHT - 1,
+              height: 1,
+              background: "var(--color-neutral-300)",
+            }}
+          />
+        ))}
+        {blocks.map((b) => (
+          <div
+            key={b.key}
+            title={b.title}
+            style={{
+              position: "absolute",
+              left: `${b.left}%`,
+              width: `${b.width}%`,
+              top: b.laneIndex * LANE_HEIGHT + (LANE_HEIGHT - BLOCK_HEIGHT) / 2,
+              height: BLOCK_HEIGHT,
+              background: b.color,
+            }}
+          />
+        ))}
       </div>
     </div>
   );
+}
+
+/** Hour ticks under the plot, at their position in the night. */
+export function hourTicks(
+  stages: SleepStage[],
+): { label: string; pct: number }[] {
+  if (stages.length === 0) return [];
+  const startMs = Math.min(
+    ...stages.map((s) => new Date(s.StartTime).getTime()),
+  );
+  const endMs = Math.max(...stages.map((s) => new Date(s.EndTime).getTime()));
+  const totalMs = endMs - startMs;
+  if (totalMs <= 0) return [];
+
+  const step = totalMs / 3600000 > 10 ? 2 : 1;
+  const first = new Date(startMs);
+  first.setMinutes(0, 0, 0);
+  first.setTime(first.getTime() + 3600000);
+
+  const ticks: { label: string; pct: number }[] = [];
+  for (let t = first.getTime(); t < endMs; t += step * 3600000) {
+    const pct = ((t - startMs) / totalMs) * 100;
+    if (pct > 2 && pct < 98) {
+      ticks.push({
+        label: `${String(new Date(t).getHours()).padStart(2, "0")}:00`,
+        pct,
+      });
+    }
+  }
+  return ticks;
 }

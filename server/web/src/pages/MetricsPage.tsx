@@ -1,123 +1,252 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { fetchTimeSeries, fetchMetricStats } from "../api";
-import TimeRangeSelector from "../components/TimeRangeSelector";
-import MetricStatsBar from "../components/metrics/MetricStatsBar";
-import MetricTimeSeriesChart from "../components/metrics/MetricTimeSeriesChart";
-import { useAvailableMetrics } from "../hooks/useMetrics";
-import { daysFromRange, formatDateLabel, type TimeRange } from "../utils/timeRange";
+import { useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { fetchMetricStats, fetchTimeSeries, type TimeSeriesPoint } from "../api";
+import DesktopOnly from "../components/DesktopOnly";
+import PageHeader from "../components/PageHeader";
+import RangeControl from "../components/RangeControl";
+import MetricChart from "../components/metrics/MetricChart";
+import { useAvailableMetrics, type MetricOption } from "../hooks/useMetrics";
+import { useIsDesktop } from "../hooks/useMediaQuery";
+import { formatDateWithYear, formatNumber } from "../utils/format";
+import { queryMessage, queryState } from "../utils/queryState";
+
+const RANGES = ["1d", "7d", "30d", "90d", "1y"] as const;
+type Range = (typeof RANGES)[number];
+
+const RANGE_DAYS: Record<Range, number> = {
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  "1y": 365,
+};
 
 export default function MetricsPage() {
-  const { visibleOptions: options, lookup, isLoading: metricsLoading } = useAvailableMetrics();
-  const [metric, setMetric] = useState("");
-  const [timeRange, setTimeRange] = useState<TimeRange>("90d");
-  const [offset, setOffset] = useState(0);
+  const isDesktop = useIsDesktop();
+  const [params, setParams] = useSearchParams();
+  const { options, groups, lookup } = useAvailableMetrics();
 
-  // Auto-select first metric when options load
+  const range = (params.get("range") as Range) ?? "90d";
+  const metric = params.get("metric") ?? "";
+
+  // Land on something rather than an empty pane when no metric is in the URL.
   useEffect(() => {
-    if (options.length > 0 && !metric) {
-      const rhr = options.find((m) => m.value === "resting_heart_rate");
-      setMetric(rhr?.value ?? options[0].value);
-    }
-  }, [options, metric]);
+    if (metric || options.length === 0) return;
+    const preferred =
+      options.find((m) => m.value === "heart_rate_variability") ?? options[0];
+    const p = new URLSearchParams(params);
+    p.set("metric", preferred.value);
+    setParams(p, { replace: true });
+  }, [metric, options, params, setParams]);
 
-  const days = daysFromRange(timeRange);
-  const endDate = new Date(Date.now() - offset * days * 86400000);
-  const startDate = new Date(endDate.getTime() - days * 86400000);
-  const end = endDate.toISOString().split("T")[0];
-  const start = startDate.toISOString().split("T")[0];
+  const days = RANGE_DAYS[range];
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86400000);
+  const endISO = end.toISOString().split("T")[0];
+  const startISO = start.toISOString().split("T")[0];
 
   const selected = lookup.get(metric);
   const multiplier = selected?.multiplier ?? 1;
+  const agg = range === "1d" ? "hourly" : "daily";
 
-  const agg = timeRange === "1d" ? "hourly" : "daily";
-  const { data: tsData, isLoading: tsLoading } = useQuery({
-    queryKey: ["timeseries", metric, start, end, agg],
-    queryFn: () => fetchTimeSeries(metric, start, end, agg),
-    enabled: !!metric,
+  const seriesQuery = useQuery({
+    queryKey: ["timeseries", metric, startISO, endISO, agg],
+    queryFn: () => fetchTimeSeries(metric, startISO, endISO, agg),
+    enabled: !!metric && isDesktop,
   });
 
-  const { data: statsData } = useQuery({
-    queryKey: ["metricStats", metric, start, end],
-    queryFn: () => fetchMetricStats(metric, start, end),
-    enabled: !!metric,
+  const statsQuery = useQuery({
+    queryKey: ["metric-stats", metric, startISO, endISO],
+    queryFn: () => fetchMetricStats(metric, startISO, endISO),
+    enabled: !!metric && isDesktop,
   });
 
-  // Apply display multiplier to stats and time series
-  const scaledStats = statsData && multiplier !== 1
-    ? { ...statsData, avg: (statsData.avg ?? 0) * multiplier, min: (statsData.min ?? 0) * multiplier, max: (statsData.max ?? 0) * multiplier, stddev: (statsData.stddev ?? 0) * multiplier }
-    : statsData;
+  if (!isDesktop) return <DesktopOnly title="Metrics" />;
 
-  const scaledTs = tsData && multiplier !== 1
-    ? tsData.map((p: any) => ({ ...p, avg: p.avg != null ? p.avg * multiplier : null, min: p.min != null ? p.min * multiplier : null, max: p.max != null ? p.max * multiplier : null }))
-    : tsData;
+  const setParam = (key: string, value: string) => {
+    const p = new URLSearchParams(params);
+    p.set(key, value);
+    setParams(p, { replace: true });
+  };
 
-  if (metricsLoading) {
-    return <p className="text-zinc-500">Loading metrics...</p>;
-  }
+  const state = queryState(seriesQuery);
+  const message = queryMessage(state, seriesQuery.error);
+  const stats = statsQuery.data;
+  const points = seriesQuery.data ?? [];
+  const latest = [...points].reverse().find((p) => p.avg != null)?.avg ?? null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100">Metrics</h2>
-        <TimeRangeSelector
-          value={timeRange}
-          onChange={(v) => { setTimeRange(v as TimeRange); setOffset(0); }}
-          options={["1d", "7d", "30d", "90d", "1y"]}
-          onPrev={() => setOffset((o) => o + 1)}
-          onNext={() => setOffset((o) => Math.max(0, o - 1))}
-          canGoNext={offset > 0}
-          dateLabel={formatDateLabel(start, end)}
-        />
-      </div>
+    <>
+      <PageHeader
+        kicker={`${formatDateWithYear(start)} – ${formatDateWithYear(end)}`}
+        title="Metrics"
+        actions={
+          <RangeControl
+            options={RANGES}
+            value={range}
+            onChange={(v) => setParam("range", v)}
+            name="metrics-range"
+          />
+        }
+      />
 
-      <div className="flex gap-6">
-        <div className="hidden lg:block shrink-0 w-48 space-y-1">
-          {options.map((m) => (
-            <button
-              key={m.value}
-              onClick={() => setMetric(m.value)}
-              className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                metric === m.value
-                  ? "bg-cyan-600/20 text-cyan-400 font-medium"
-                  : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-              }`}
-            >
-              {m.label}
-            </button>
+      <div
+        style={{
+          display: "flex",
+          borderTop: "2px solid var(--color-text)",
+          minHeight: 760,
+        }}
+      >
+        <div className="rail">
+          <div className="kick" style={{ padding: "14px 20px 10px" }}>
+            {options.length} metrics
+          </div>
+          {groups.map((group) => (
+            <div key={group.label}>
+              <div
+                className="kick"
+                style={{
+                  padding: "16px 20px 6px",
+                  color: "var(--color-neutral-500)",
+                }}
+              >
+                {group.label}
+              </div>
+              {group.metrics.map((m: MetricOption) => (
+                <button
+                  key={m.value}
+                  className="rail-item"
+                  aria-selected={m.value === metric}
+                  style={{ padding: "9px 20px" }}
+                  onClick={() => setParam("metric", m.value)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
 
-        <div className="flex-1 min-w-0 space-y-4">
-          <div className="lg:hidden">
-            <select
-              value={metric}
-              onChange={(e) => setMetric(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-md px-3 py-1.5 text-sm w-full
-                         focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            className="flex items-baseline justify-between gap-5 page-x"
+            style={{ paddingTop: 22, paddingBottom: 18 }}
+          >
+            <div>
+              <h2 style={{ fontSize: 26, letterSpacing: "-0.02em" }}>
+                {selected?.label ?? metric ?? "—"}
+              </h2>
+              <div
+                style={{
+                  font: "400 12px var(--font-body)",
+                  color: "var(--color-neutral-600)",
+                  marginTop: 7,
+                }}
+              >
+                {[selected?.unit, `${days} days`, `${agg} aggregate`]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: 12 }}
+              onClick={() => exportCSV(points, multiplier, metric)}
+              disabled={points.length === 0}
             >
-              {options.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+              Export CSV
+            </button>
           </div>
 
-          {scaledStats && <MetricStatsBar stats={scaledStats} />}
-
-          {tsLoading ? (
-            <div className="bg-zinc-900 rounded-lg p-6 h-[340px] animate-pulse" />
-          ) : (
-            <MetricTimeSeriesChart
-              data={scaledTs ?? []}
-              stats={scaledStats ?? null}
-              label={selected?.label ?? metric}
-              unit={selected?.unit ?? ""}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(6, 1fr)",
+              borderTop: "2px solid var(--color-text)",
+              borderBottom: "2px solid var(--color-text)",
+            }}
+          >
+            <Stat label="Latest" value={scale(latest, multiplier)} />
+            <Stat label="Mean" value={scale(stats?.avg ?? null, multiplier)} />
+            <Stat label="Min" value={scale(stats?.min ?? null, multiplier)} />
+            <Stat label="Max" value={scale(stats?.max ?? null, multiplier)} />
+            <Stat
+              label="Std dev"
+              value={scale(stats?.stddev ?? null, multiplier)}
             />
-          )}
+            {/* Samples tells you when a gap in the data explains a weird mean. */}
+            <Stat
+              label="Samples"
+              value={stats ? formatNumber(stats.count) : "—"}
+            />
+          </div>
+
+          <div className="page-x" style={{ paddingTop: 26, paddingBottom: 34 }}>
+            {message ? (
+              <p style={{ color: "var(--color-neutral-600)", fontSize: 13 }}>
+                {message}
+              </p>
+            ) : state === "loading" ? (
+              <div className="skel" style={{ width: "100%", height: 420 }} />
+            ) : (
+              <MetricChart
+                points={points}
+                multiplier={multiplier}
+                unit={selected?.unit ?? ""}
+              />
+            )}
+          </div>
         </div>
+      </div>
+    </>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        padding: "18px 20px 16px",
+        borderRight: "1px solid var(--color-divider)",
+      }}
+    >
+      <div className="kick">{label}</div>
+      <div
+        className="num"
+        style={{
+          font: "800 26px/1 var(--font-heading)",
+          letterSpacing: "-0.03em",
+          marginTop: 11,
+        }}
+      >
+        {value}
       </div>
     </div>
   );
+}
+
+function scale(value: number | null, multiplier: number): string {
+  return value == null ? "—" : formatNumber(value * multiplier);
+}
+
+function exportCSV(
+  points: TimeSeriesPoint[],
+  multiplier: number,
+  metric: string,
+) {
+  const rows = [
+    "date,value",
+    ...points.map(
+      (p) => `${p.time},${p.avg == null ? "" : String(p.avg * multiplier)}`,
+    ),
+  ];
+  const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${metric || "metric"}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -1,73 +1,638 @@
 @import "tailwindcss";
 
-/* react-day-picker dark theme */
+/* Archivo, self-hosted. The server is reachable over Tailscale only, so a
+   Google Fonts link would leave the UI on a fallback face whenever the client
+   has no route to the CDN. */
+@import "@fontsource-variable/archivo/wght.css";
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Modernist tokens — the source of truth for colour, type and spacing.
+   Ported from the design system's styles.css :root block.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201e1d;
+  --color-accent: #ec3013;
+  --color-divider: color-mix(in srgb, #201e1d 32%, transparent);
+
+  /* Tonal ramp — generated in OKLCH on one shared lightness scale, so the same
+     step of any role matches the others in visual value. */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  --color-accent-100: #fff2ef;
+  --color-accent-200: #ffe0d9;
+  --color-accent-300: #ffc4b8;
+  --color-accent-400: #ff9783;
+  --color-accent-500: #ff563c;
+  --color-accent-600: #dd2b0f;
+  --color-accent-700: #ae1800;
+  --color-accent-800: #7c1405;
+  --color-accent-900: #4d170e;
+
+  --font-heading: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  --font-body: "Archivo Variable", "Archivo", system-ui, sans-serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+
+  /* Page horizontal padding. Nav, headers, table cells and footers align to it. */
+  --page-x: 40px;
+}
+
+/* Below the phone breakpoint the page padding drops to 20px. Everything that
+   aligns to the page edge reads this token, so the change lands in one place. */
+@media (max-width: 767px) {
+  :root {
+    --page-x: 20px;
+  }
+}
+
+/* Dark ground: the same tokens re-pointed. Ink and ground swap, the neutral
+   ramp inverts, and the accent lifts so it holds contrast on the dark ground. */
+[data-theme="dark"] {
+  --color-bg: #171615;
+  --color-surface: #201e1d;
+  --color-text: #f3f2f2;
+  --color-divider: color-mix(in srgb, #f3f2f2 32%, transparent);
+  --color-neutral-100: #2d2b2b;
+  --color-neutral-200: #211f1f;
+  --color-neutral-300: #3c3939;
+  --color-neutral-400: #514e4e;
+  --color-neutral-500: #7d7979;
+  --color-neutral-600: #9b9797;
+  --color-neutral-700: #bab6b6;
+  --color-neutral-800: #d7d3d3;
+  --color-neutral-900: #eae7e7;
+  --color-accent: #ff563c;
+  --color-accent-100: #3a1a13;
+  --color-accent-700: #ff9783;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --color-bg: #171615;
+    --color-surface: #201e1d;
+    --color-text: #f3f2f2;
+    --color-divider: color-mix(in srgb, #f3f2f2 32%, transparent);
+    --color-neutral-100: #2d2b2b;
+    --color-neutral-200: #211f1f;
+    --color-neutral-300: #3c3939;
+    --color-neutral-400: #514e4e;
+    --color-neutral-500: #7d7979;
+    --color-neutral-600: #9b9797;
+    --color-neutral-700: #bab6b6;
+    --color-neutral-800: #d7d3d3;
+    --color-neutral-900: #eae7e7;
+    --color-accent: #ff563c;
+    --color-accent-100: #3a1a13;
+    --color-accent-700: #ff9783;
+  }
+}
+
+/* Expose the tokens to Tailwind so `bg-bg`, `text-neutral-600`, `border-ink`
+   and friends resolve to the same variables the plain CSS below uses. */
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-ink: var(--color-text);
+  --color-accent: var(--color-accent);
+  --color-accent-100: var(--color-accent-100);
+  --color-accent-700: var(--color-accent-700);
+  --color-divider: var(--color-divider);
+  --color-neutral-100: var(--color-neutral-100);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-500: var(--color-neutral-500);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-neutral-700: var(--color-neutral-700);
+  --color-neutral-800: var(--color-neutral-800);
+  --color-neutral-900: var(--color-neutral-900);
+  --font-sans: var(--font-body);
+  --radius-md: 0px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Base
+   ══════════════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg);
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+a {
+  color: var(--color-accent-700);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--color-accent);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* Every number that can change carries this. Without it the hero numbers
+   jitter on every poll. */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Kicker — the 10px uppercase label above a value, and the table header face. */
+.kick {
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.page-x {
+  padding-inline: var(--page-x);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Components
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* — buttons — */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-600);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--color-accent-700);
+}
+
+.btn-secondary {
+  border-color: var(--color-divider);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.btn-secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.btn-ghost {
+  color: var(--color-accent-700);
+  padding-inline: var(--space-1);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent-700);
+}
+
+.btn-ghost:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+/* — forms — */
+.field > label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 5px;
+  color: var(--color-neutral-600);
+}
+
+.input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+
+.input:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.input:focus-visible {
+  border-color: var(--color-accent);
+  outline-offset: 0;
+}
+
+/* — segmented range control — a real radio group, not buttons — */
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+
+.seg-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg-opt input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.seg-opt + .seg-opt {
+  border-left: 1px solid var(--color-divider);
+}
+
+.seg-opt:has(input:checked) {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.seg-opt:not(:has(input:checked)):hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.seg-opt:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* — tags — */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+}
+
+.tag-accent {
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+}
+
+.tag-neutral {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-800);
+}
+
+.tag-outline {
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent-700);
+}
+
+/* — navigation — */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 16px var(--page-x);
+  border-bottom: 2px solid var(--color-text);
+}
+
+.nav-brand {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+  margin-right: var(--space-4);
+  color: var(--color-text);
+}
+
+.nav a {
+  color: var(--color-neutral-700);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nav a:hover {
+  color: var(--color-text);
+}
+
+/* An inset shadow rather than a border, so the active mark does not shift the
+   baseline. */
+.nav a[aria-current="page"] {
+  font-weight: 600;
+  color: var(--color-text);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+/* — tables — */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  padding: 10px 16px;
+  border-bottom: 2px solid var(--color-text);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: var(--page-x);
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: var(--page-x);
+}
+
+.table tbody tr:hover:not(.grp) {
+  background: var(--color-accent-100);
+}
+
+/* Group header row — breaks a table into categories. Not hoverable. */
+.table tr.grp td {
+  background: var(--color-neutral-200);
+  border-bottom: 2px solid var(--color-text);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+/* — rail (Metrics, Settings) — */
+.rail {
+  width: 248px;
+  flex: none;
+  border-right: 2px solid var(--color-text);
+}
+
+.rail-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  background: transparent;
+  border: 0;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+.rail-item:hover {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  color: var(--color-text);
+}
+
+.rail-item[aria-selected="true"] {
+  border-left-color: var(--color-accent);
+  background: var(--color-accent-100);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Mobile shell (< 768px)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Bottom tab bar — five equal columns on the page ground, no blur, not
+   translucent. The accent mark moves from the bottom of a desktop nav link to
+   the top of the tab. */
+.tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border-top: 2px solid var(--color-text);
+  background: var(--color-bg);
+}
+
+.tabs a {
+  padding: 14px 0 22px;
+  padding-bottom: calc(22px + env(safe-area-inset-bottom));
+  text-align: center;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  min-height: 44px;
+}
+
+.tabs a[aria-current="page"] {
+  color: var(--color-text);
+  box-shadow: inset 0 3px 0 var(--color-accent);
+}
+
+/* Record row — what a table row becomes below 768px. Identity left, number
+   right, both on one baseline. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px var(--page-x);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+/* Group band — the table's group header row, carried over to the row layout. */
+.row-group {
+  padding: 8px var(--page-x);
+  background: var(--color-neutral-200);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+/* Square chip — the mobile range control and the workout filters. */
+.chip {
+  font: 600 11px var(--font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  border: 1px solid var(--color-neutral-400);
+  background: transparent;
+  color: var(--color-neutral-700);
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.chip[aria-pressed="true"],
+.chip[aria-current="true"] {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-bg);
+}
+
+/* — skeleton — reserves the value's height so nothing reflows on arrival — */
+.skel {
+  display: inline-block;
+  background: var(--color-neutral-300);
+  vertical-align: baseline;
+}
+
+/* — react-day-picker, retuned onto the tokens — */
 .rdp-wrapper {
-  background: #18181b;
-  border: 1px solid #3f3f46;
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  padding: 12px;
 }
 
 .rdp-root {
-  --rdp-accent-color: #0891b2;
-  --rdp-accent-background-color: #164e63;
+  --rdp-accent-color: var(--color-accent);
+  --rdp-accent-background-color: var(--color-accent-100);
   --rdp-day-height: 2rem;
   --rdp-day-width: 2rem;
   --rdp-day_button-height: 2rem;
   --rdp-day_button-width: 2rem;
   --rdp-selected-font: bold;
   --rdp-outside-opacity: 0.3;
-
-  color: #e4e4e7;
-  font-size: 0.875rem;
+  color: var(--color-text);
+  font-size: 13px;
 }
 
 .rdp-month_caption {
-  color: #e4e4e7;
+  color: var(--color-text);
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 13px;
 }
 
 .rdp-button_previous,
 .rdp-button_next {
-  color: #a1a1aa;
+  color: var(--color-neutral-600);
   border: none;
-  border-radius: 0.375rem;
 }
 
 .rdp-button_previous:hover,
 .rdp-button_next:hover {
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--color-neutral-200);
+  color: var(--color-text);
 }
 
 .rdp-weekday {
-  color: #71717a;
-  font-size: 0.75rem;
+  color: var(--color-neutral-600);
+  font-size: 11px;
   font-weight: 500;
 }
 
 .rdp-day button {
-  border-radius: 0.375rem;
-  color: #d4d4d8;
+  color: var(--color-neutral-800);
+  border-radius: 0;
 }
 
 .rdp-day button:hover {
-  background: #27272a;
+  background: var(--color-neutral-200);
 }
 
 .rdp-selected .rdp-day_button {
-  background: #0891b2 !important;
-  color: #fff !important;
+  background: var(--color-accent) !important;
+  color: var(--color-bg) !important;
   font-weight: 600;
 }
 
 .rdp-today:not(.rdp-selected) .rdp-day_button {
-  border: 1px solid #0891b2;
+  border: 1px solid var(--color-accent);
   font-weight: 600;
 }
 
 .rdp-disabled .rdp-day_button {
-  color: #52525b;
+  color: var(--color-neutral-400);
 }

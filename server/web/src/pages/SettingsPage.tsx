@@ -1,67 +1,106 @@
 import { useSearchParams } from "react-router-dom";
+import PageHeader from "../components/PageHeader";
+import FrontPageTab from "../components/settings/FrontPageTab";
+import HevyTab from "../components/settings/HevyTab";
 import IdentityTab from "../components/settings/IdentityTab";
 import ImportTab from "../components/settings/ImportTab";
-import MetricVisibilityTab from "../components/settings/MetricVisibilityTab";
-import HevyTab from "../components/settings/HevyTab";
+import IngestTab from "../components/settings/IngestTab";
 import OuraTab from "../components/settings/OuraTab";
-import SourcePriorityTab from "../components/settings/SourcePriorityTab";
-import StatsTab from "../components/settings/StatsTab";
-import ImportLogsTab from "../components/settings/ImportLogsTab";
+import SourcesTab from "../components/settings/SourcesTab";
+import { useIsDesktop } from "../hooks/useMediaQuery";
 
+/* Hevy and Import are absent from the design's five-tab rail, but both drive
+   working integrations, so they stay rather than being dropped along with the
+   old layout. */
 const TABS = [
-  { id: "identity", label: "Identity" },
-  { id: "import", label: "Import" },
-  { id: "metrics", label: "Metrics" },
-  { id: "oura", label: "Oura Ring" },
-  { id: "hevy", label: "Hevy" },
-  { id: "priority", label: "Source Priority" },
-  { id: "stats", label: "Stats" },
-  { id: "logs", label: "Import Logs" },
+  { id: "identity", label: "Identity", render: () => <IdentityTab /> },
+  { id: "sources", label: "Sources", render: () => <SourcesTab /> },
+  { id: "oura", label: "Oura", render: () => <OuraTab /> },
+  { id: "hevy", label: "Hevy", render: () => <HevyTab /> },
+  { id: "front-page", label: "Front page", render: () => <FrontPageTab /> },
+  { id: "ingest", label: "Ingest", render: () => <IngestTab /> },
+  { id: "import", label: "Import", render: () => <ImportTab /> },
 ] as const;
 
 type TabID = (typeof TABS)[number]["id"];
 
-const VALID_TABS = new Set<string>(TABS.map((t) => t.id));
+const VALID = new Set<string>(TABS.map((t) => t.id));
 
 export default function SettingsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const paramTab = searchParams.get("tab");
-  const tab: TabID = paramTab && VALID_TABS.has(paramTab) ? (paramTab as TabID) : "identity";
+  const isDesktop = useIsDesktop();
+  const [params, setParams] = useSearchParams();
+  const raw = params.get("tab");
+  const active: TabID = raw && VALID.has(raw) ? (raw as TabID) : "identity";
 
-  function setTab(id: TabID) {
-    setSearchParams({ tab: id }, { replace: true });
+  const setTab = (id: TabID) => {
+    const p = new URLSearchParams(params);
+    p.set("tab", id);
+    setParams(p, { replace: true });
+  };
+
+  if (!isDesktop) {
+    // One scrolling page rather than a rail: the phone has no room beside the
+    // content, and the sections are short enough to read in sequence.
+    return (
+      <>
+        <PageHeader kicker="FreeReps" title="Settings" />
+        <div style={{ borderTop: "2px solid var(--color-text)" }}>
+          {TABS.map((tab) => (
+            <section
+              key={tab.id}
+              className="page-x"
+              style={{
+                paddingTop: 20,
+                paddingBottom: 24,
+                borderBottom: "2px solid var(--color-text)",
+              }}
+            >
+              {tab.render()}
+            </section>
+          ))}
+        </div>
+      </>
+    );
   }
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold text-zinc-100 mb-4">Settings</h2>
+    <>
+      <PageHeader kicker="FreeReps" title="Settings" />
 
-      <nav className="flex gap-1 overflow-x-auto scrollbar-none mb-6 border-b border-zinc-800 pb-2">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-              tab === t.id
-                ? "bg-cyan-600 text-white"
-                : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <div
+        style={{
+          display: "flex",
+          borderTop: "2px solid var(--color-text)",
+          minHeight: 640,
+        }}
+      >
+        <div className="rail">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className="rail-item"
+              aria-selected={tab.id === active}
+              style={{ padding: "11px 20px" }}
+              onClick={() => setTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-      <div>
-        {tab === "identity" && <IdentityTab />}
-        {tab === "import" && <ImportTab />}
-        {tab === "metrics" && <MetricVisibilityTab />}
-        {tab === "oura" && <OuraTab />}
-        {tab === "hevy" && <HevyTab />}
-        {tab === "priority" && <SourcePriorityTab />}
-        {tab === "stats" && <StatsTab />}
-        {tab === "logs" && <ImportLogsTab />}
+        <div
+          className="page-x"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            maxWidth: 960,
+            paddingTop: 26,
+            paddingBottom: 40,
+          }}
+        >
+          {TABS.find((t) => t.id === active)?.render()}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

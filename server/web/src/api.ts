@@ -62,29 +62,62 @@ export interface DailySum {
   Total: number;
 }
 
-export interface LatestMetricsResponse {
-  latest: HealthMetricRow[];
-  daily_sums: DailySum[] | null;
+// --- Front page ---
+
+/**
+ * One metric as the front page needs it: metadata, latest reading, and
+ * everything derived from the 30-day window. The series array is what lets the
+ * dashboard render sparklines without a second request or a chart library.
+ */
+export interface FrontPageMetric {
+  metric_name: string;
+  label: string;
+  category: string;
+  unit: string;
+  is_cumulative: boolean;
+  multiplier: number;
+  source: string;
+  time: string;
+  latest: number | null;
+  /** Mean of the last 7 days minus the mean of the 7 before it. */
+  delta_7d: number | null;
+  /** The same change relative to the earlier window, as a fraction. */
+  delta_7d_pct: number | null;
+  /** p05 and p95 over the window — percentiles, so one bad reading does not widen it. */
+  range_low: number | null;
+  range_high: number | null;
+  /** One slot per day, oldest first, null where the day has no samples. */
+  series: (number | null)[];
 }
 
-export async function fetchLatestMetrics(): Promise<LatestMetricsResponse> {
-  const res = await fetch(`${BASE}/metrics/latest`);
+export interface FrontPageResponse {
+  metrics: FrontPageMetric[];
+  heroes: string[];
+  total_available: number;
+  window_days: number;
+  window_start: string;
+  last_sync: string | null;
+  last_sources: string[] | null;
+}
+
+export async function fetchFrontPage(
+  range: string = "30d",
+): Promise<FrontPageResponse> {
+  const res = await fetch(`${BASE}/metrics/latest?range=${range}`);
   if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
   return res.json();
 }
 
-// --- Dashboard Init (combined endpoint) ---
-
-export interface DashboardInitResponse {
-  available_metrics: MetricMeta[];
-  latest: HealthMetricRow[];
-  daily_sums: DailySum[] | null;
-}
-
-export async function fetchDashboardInit(): Promise<DashboardInitResponse> {
-  const res = await fetch(`${BASE}/dashboard/init`);
-  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
-  return res.json();
+export async function saveFrontPageHeroes(heroes: string[]): Promise<void> {
+  const res = await fetch(`${BASE}/preferences/front-page-heroes`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(heroes),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `${res.status}: ${res.statusText}`);
+  }
 }
 
 export async function fetchTimeSeries(
@@ -205,6 +238,28 @@ export async function fetchWorkouts(
   const params = new URLSearchParams({ start, end });
   if (type) params.set("type", type);
   const res = await fetch(`${BASE}/workouts?${params}`);
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+/** One session's share of time per heart rate zone, five fractions summing to 1. */
+export interface WorkoutZones {
+  workout_id: string;
+  shares: number[];
+}
+
+export interface WorkoutZonesResponse {
+  /** The highest heart rate ever recorded; the zone bands derive from it. */
+  max_heart_rate: number;
+  zones: WorkoutZones[] | null;
+}
+
+export async function fetchWorkoutZones(
+  start: string,
+  end: string,
+): Promise<WorkoutZonesResponse> {
+  const params = new URLSearchParams({ start, end });
+  const res = await fetch(`${BASE}/workouts/zones?${params}`);
   if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
   return res.json();
 }

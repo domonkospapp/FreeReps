@@ -1,33 +1,38 @@
-import { WorkoutHR } from "../../api";
-
-const ZONES = [
-  { name: "Z1", label: "Zone 1", min: 0, max: 120, color: "#22d3ee" },
-  { name: "Z2", label: "Zone 2", min: 120, max: 140, color: "#4ade80" },
-  { name: "Z3", label: "Zone 3", min: 140, max: 155, color: "#facc15" },
-  { name: "Z4", label: "Zone 4", min: 155, max: 170, color: "#fb923c" },
-  { name: "Z5", label: "Zone 5", min: 170, max: 999, color: "#f87171" },
-];
+import type { ReactNode } from "react";
+import type { WorkoutHR } from "../../api";
+import { ZONE_BOUNDS, ZONE_COLORS, zoneBands } from "../../utils/stageColors";
 
 interface Props {
   hrData: WorkoutHR[];
+  /** Falls back to the session's own peak when the user's maximum is unknown. */
+  maxHR?: number;
 }
 
-export default function HRZoneBars({ hrData }: Props) {
+/**
+ * Time in each zone, measured from the gaps between samples rather than by
+ * counting them — a strength session's rest periods would otherwise inflate
+ * the low zones.
+ */
+export default function HRZoneBars({ hrData, maxHR }: Props) {
   if (!hrData || hrData.length < 5) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-zinc-400 mb-2">
-          Time in HR Zones
-        </h3>
-        <p className="text-sm text-zinc-500">
-          Not enough HR data for zone analysis.
+      <Section>
+        <p style={{ color: "var(--color-neutral-600)", fontSize: 13, margin: 0 }}>
+          Not enough heart rate data for zone analysis.
         </p>
-      </div>
+      </Section>
     );
   }
 
-  // Count time in each zone
-  const zoneSecs = ZONES.map(() => 0);
+  const peak = Math.max(
+    ...hrData.map((d) => d.MaxBPM ?? d.AvgBPM ?? 0),
+    maxHR ?? 0,
+  );
+  if (peak <= 0) return null;
+
+  const edges = ZONE_BOUNDS.map((f) => f * peak);
+  const zoneSecs: number[] = new Array(ZONE_COLORS.length).fill(0);
+
   for (let i = 1; i < hrData.length; i++) {
     const bpm = hrData[i].AvgBPM ?? hrData[i].MaxBPM ?? 0;
     if (!bpm) continue;
@@ -35,56 +40,110 @@ export default function HRZoneBars({ hrData }: Props) {
       (new Date(hrData[i].Time).getTime() -
         new Date(hrData[i - 1].Time).getTime()) /
       1000;
-    if (dt <= 0 || dt > 600) continue; // skip gaps > 10 min (covers strength rest periods)
-    const zoneIdx = ZONES.findIndex((z) => bpm < z.max);
-    if (zoneIdx >= 0) zoneSecs[zoneIdx] += dt;
+    // Skip gaps over ten minutes: those are rests, not time in a zone.
+    if (dt <= 0 || dt > 600) continue;
+    let zone = edges.length;
+    for (let z = 0; z < edges.length; z++) {
+      if (bpm < edges[z]) {
+        zone = z;
+        break;
+      }
+    }
+    zoneSecs[zone] += dt;
   }
 
-  const totalSecs = zoneSecs.reduce((a, b) => a + b, 0);
-  if (totalSecs === 0) {
+  const total = zoneSecs.reduce((a, b) => a + b, 0);
+  if (total === 0) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-zinc-400 mb-2">
-          Time in HR Zones
-        </h3>
-        <p className="text-sm text-zinc-500">
-          Insufficient continuous HR data for zone analysis.
+      <Section>
+        <p style={{ color: "var(--color-neutral-600)", fontSize: 13, margin: 0 }}>
+          Samples are too sparse to measure time in zones.
         </p>
-      </div>
+      </Section>
     );
   }
 
+  const bands = zoneBands(peak);
+
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-zinc-400 mb-3">
-        Time in HR Zones
-      </h3>
-      <div className="space-y-2">
-        {ZONES.map((zone, i) => {
-          const pct = (zoneSecs[i] / totalSecs) * 100;
-          const mins = Math.round(zoneSecs[i] / 60);
-          if (mins === 0 && pct < 1) return null;
-          return (
-            <div key={zone.name} className="flex items-center gap-3">
-              <span className="text-xs text-zinc-500 w-10 shrink-0">
-                {zone.label}
-              </span>
-              <div className="flex-1 h-5 bg-zinc-800 rounded-sm overflow-hidden">
-                <div
-                  className="h-full rounded-sm transition-all"
-                  style={{
-                    width: `${Math.max(pct, 1)}%`,
-                    backgroundColor: zone.color,
-                    opacity: 0.7,
-                  }}
-                />
-              </div>
-              <span className="text-xs text-zinc-400 w-14 text-right tabular-nums">
-                {mins}m ({Math.round(pct)}%)
-              </span>
+    <Section>
+      {zoneSecs.map((secs, i) => {
+        const pct = (secs / total) * 100;
+        const mins = Math.round(secs / 60);
+        if (mins === 0 && pct < 1) return null;
+        return (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "7px 0",
+            }}
+          >
+            <span className="kick" style={{ width: 52, flex: "none" }}>
+              Zone {i + 1}
+            </span>
+            <span
+              className="num"
+              style={{
+                width: 70,
+                flex: "none",
+                font: "400 11.5px var(--font-body)",
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              {bands[i]}
+            </span>
+            <div
+              style={{
+                flex: 1,
+                height: 14,
+                border: "1px solid var(--color-divider)",
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.max(pct, 1)}%`,
+                  height: "100%",
+                  background: ZONE_COLORS[i],
+                }}
+              />
             </div>
-          );
-        })}
+            <span
+              className="num"
+              style={{
+                width: 84,
+                flex: "none",
+                textAlign: "right",
+                font: "500 12.5px var(--font-body)",
+              }}
+            >
+              {mins}m
+              <span style={{ color: "var(--color-neutral-600)", fontWeight: 400 }}>
+                {" "}
+                {Math.round(pct)}%
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
+
+function Section({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ marginTop: 30 }}>
+      <h2 style={{ fontSize: 19, fontWeight: 700 }}>Time in heart rate zones</h2>
+      <div
+        style={{
+          borderTop: "2px solid var(--color-text)",
+          marginTop: 12,
+          paddingTop: 8,
+        }}
+      >
+        {children}
       </div>
     </div>
   );

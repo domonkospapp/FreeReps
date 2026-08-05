@@ -17,9 +17,8 @@ each becomes its own `[open]` row before the entry is moved out.
 
 | Status | Item | Where | Trigger | Notes |
 |---|---|---|---|---|
-| `[open]` | Trend views | `server/web/src/` | | Rolling averages and period comparison per metric. The correlation explorer answers "do these two move together"; a trend view answers "where is this one going". |
-| `[open]` | Saveable dashboard configurations | `server/web/src/`, `server/migrations/` | | Metric selection and time range are currently per-session. Persisting them needs a per-user table, like `metric_visibility` already has. |
-| `[open]` | Responsive optimization | `server/web/src/` | | The dashboard is laid out for a desktop viewport. The iOS app covers phone use for sync, not for reading charts. |
+| `[open]` | Persist the selected time range per screen | `server/web/src/`, `server/internal/storage/preferences.go` | | Metric selection and the four hero numbers persist in `user_preferences`; the range does not, and resets to each screen's default on a fresh session. The table and the `GetPreference`/`SetPreference` pair are already in place — this is one more key. |
+| `[open]` | Lag correlation over the full series, server-side | `server/internal/storage/health_metrics.go`, `server/web/src/pages/CorrelationPage.tsx` | Windows beyond one year | The Correlations screen fetches both metrics as daily series and pairs them in the browser to compute r at four lags from one payload. At a 1y window that is two arrays of 365; beyond that the pairing belongs in SQL. |
 
 ## Training data
 

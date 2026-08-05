@@ -13,11 +13,12 @@ const CorrelationPage = lazy(() => import("./pages/CorrelationPage"));
 const TrendsPage = lazy(() => import("./pages/TrendsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
+/* The shell is already on screen; this only reserves the page's own height so
+   the tab bar does not jump up while the chunk loads. */
 function PageFallback() {
   return (
-    <div className="space-y-4 animate-pulse">
-      <div className="h-8 w-48 bg-zinc-900 rounded" />
-      <div className="h-64 bg-zinc-900 rounded-lg" />
+    <div className="page-x" style={{ paddingTop: 22 }}>
+      <span className="skel" style={{ width: 180, height: 34 }} />
     </div>
   );
 }

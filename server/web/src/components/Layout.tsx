@@ -1,9 +1,11 @@
-import { ReactNode, useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
-import { fetchMe, fetchVersion, type UserInfo } from "../api";
+import { useQuery } from "@tanstack/react-query";
+import { Link, NavLink } from "react-router-dom";
+import type { ReactNode } from "react";
+import { fetchMe } from "../api";
+import { useIsDesktop } from "../hooks/useMediaQuery";
 
 const NAV_ITEMS = [
-  { to: "/", label: "Dashboard" },
+  { to: "/", label: "Today", end: true },
   { to: "/sleep", label: "Sleep" },
   { to: "/workouts", label: "Workouts" },
   { to: "/metrics", label: "Metrics" },
@@ -11,74 +13,63 @@ const NAV_ITEMS = [
   { to: "/trends", label: "Trends" },
 ];
 
-export default function Layout({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [version, setVersion] = useState<string | null>(null);
+/* Metrics and Correlations are absent: they need width the phone does not have,
+   so below 768px they stay reachable by URL only. Settings sits under More. */
+const TAB_ITEMS = [
+  { to: "/", label: "Today", end: true },
+  { to: "/sleep", label: "Sleep" },
+  { to: "/workouts", label: "Train" },
+  { to: "/trends", label: "Trends" },
+  { to: "/settings", label: "More" },
+];
 
-  useEffect(() => {
-    fetchMe().then(setUser).catch(() => {});
-    fetchVersion().then((v) => setVersion(v.version)).catch(() => {});
-  }, []);
+export default function Layout({ children }: { children: ReactNode }) {
+  const isDesktop = useIsDesktop();
+  const { data: user } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    staleTime: 5 * 60 * 1000,
+  });
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-          <NavLink to="/" className="flex items-center gap-2 shrink-0">
-            <h1 className="text-xl font-bold text-zinc-100 tracking-tight">
-              FreeReps
-            </h1>
-            {version && version !== "dev" && !version.startsWith("edge-") && (
-              <a
-                href={`https://github.com/meltforce/FreeReps/releases/tag/${version}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-zinc-500 font-mono hover:text-zinc-300 transition-colors"
-              >
-                v{version}
-              </a>
-            )}
+    <div className="min-h-screen flex flex-col">
+      {isDesktop ? (
+        <nav className="nav">
+          {/* A plain Link: the brand points at Today but must not carry the
+              active mark, which belongs to the Today nav item. */}
+          <Link to="/" className="nav-brand">
+            FreeReps
+          </Link>
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end}>
+              {item.label}
+            </NavLink>
+          ))}
+          <NavLink
+            to="/settings"
+            className="ml-auto"
+            style={{ color: "var(--color-neutral-600)" }}
+          >
+            {user?.display_name || user?.login || "Settings"}
           </NavLink>
+        </nav>
+      ) : null}
 
-          <nav className="ml-6 flex gap-1 overflow-x-auto scrollbar-none">
-            {NAV_ITEMS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) =>
-                  `px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-                    isActive
-                      ? "bg-cyan-600 text-white"
-                      : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  }`
-                }
-              >
+      <main className="flex-1 flex flex-col">{children}</main>
+
+      {!isDesktop ? (
+        <>
+          {/* Reserves the tab bar's height so the last row is not covered. */}
+          <div aria-hidden className="h-[76px]" />
+          <nav className="tabs">
+            {TAB_ITEMS.map((item) => (
+              <NavLink key={item.to} to={item.to} end={item.end}>
                 {item.label}
               </NavLink>
             ))}
           </nav>
-
-          {user && (
-            <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                `ml-auto flex items-center gap-1.5 text-sm font-medium shrink-0 transition-colors ${
-                  isActive
-                    ? "text-cyan-400"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`
-              }
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10 8a3 3 0 100-6 3 3 0 000 6zM3.465 14.493a1.23 1.23 0 00.41 1.412A9.957 9.957 0 0010 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 00-13.074.003z" />
-              </svg>
-              {user.display_name || user.login}
-            </NavLink>
-          )}
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
+        </>
+      ) : null}
     </div>
   );
 }

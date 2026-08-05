@@ -1,76 +1,356 @@
-import DailyOverview from "../components/DailyOverview";
-import TimeSeriesChart from "../components/TimeSeriesChart";
-import MetricSelector from "../components/MetricSelector";
-import TimeRangeSelector from "../components/TimeRangeSelector";
-import { useEffect, useState } from "react";
-import { useAvailableMetrics } from "../hooks/useMetrics";
-import { useDashboardInit } from "../hooks/useDashboardInit";
-import { daysFromRange, formatDateLabel, type TimeRange } from "../utils/timeRange";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { fetchFrontPage, type FrontPageMetric } from "../api";
+import PageHeader from "../components/PageHeader";
+import RangeControl from "../components/RangeControl";
+import Sparkline from "../components/Sparkline";
+import HeroStrip from "../components/dashboard/HeroStrip";
+import MetricRows from "../components/dashboard/MetricRows";
+import {
+  displayDelta,
+  displayRange,
+  displayValue,
+  groupByCategory,
+  type MetricGroupSection,
+} from "../components/dashboard/metricDisplay";
+import { useIsDesktop } from "../hooks/useMediaQuery";
+import { deltaColor } from "../utils/metricDirection";
+import { formatFullDate, formatTimeAgo } from "../utils/format";
+import { queryMessage, queryState } from "../utils/queryState";
+
+const RANGES = ["1d", "7d", "30d", "90d", "1y"] as const;
+type DashboardRange = (typeof RANGES)[number];
 
 export default function DashboardPage() {
-  // Single request seeds both available-metrics and latestMetrics caches.
-  useDashboardInit();
+  const isDesktop = useIsDesktop();
+  const [params, setParams] = useSearchParams();
+  const range = (params.get("range") as DashboardRange) ?? "30d";
 
-  const { visibleOptions: options, lookup, isLoading } = useAvailableMetrics();
-  const [metric, setMetric] = useState("heart_rate");
-  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
-  const [offset, setOffset] = useState(0);
+  const query = useQuery({
+    queryKey: ["front-page", range],
+    queryFn: () => fetchFrontPage(range),
+    staleTime: 60_000,
+  });
+  const { data } = query;
+  const state = queryState(query);
+  const message = queryMessage(state, query.error);
 
-  // Auto-select first metric when options load
-  useEffect(() => {
-    if (options.length > 0 && !options.find((m) => m.value === metric)) {
-      setMetric(options[0].value);
-    }
-  }, [options, metric]);
+  const groups = useMemo(
+    () => groupByCategory(data?.metrics ?? []),
+    [data?.metrics],
+  );
 
-  const days = daysFromRange(timeRange);
-  const endDate = new Date(Date.now() - offset * days * 86400000);
-  const startDate = new Date(endDate.getTime() - days * 86400000);
-  const end = endDate.toISOString().split("T")[0];
-  const start = startDate.toISOString().split("T")[0];
+  const heroes = useMemo(() => {
+    if (!data) return [];
+    const byName = new Map(data.metrics.map((m) => [m.metric_name, m]));
+    return data.heroes
+      .map((name) => byName.get(name))
+      .filter((m): m is FrontPageMetric => m != null);
+  }, [data]);
 
-  const selected = lookup.get(metric);
+  const setRange = (next: DashboardRange) => {
+    const p = new URLSearchParams(params);
+    p.set("range", next);
+    setParams(p, { replace: true });
+  };
 
-  // Only cumulative metrics (steps, calories) and heart rate have meaningful
-  // sub-daily data. Everything else (sleep, weight, scores) is once-per-day
-  // and should always use daily aggregation to avoid nonsensical hourly x-axis.
-  const supportsHourly = selected?.isCumulative || metric === "heart_rate";
-  const agg = timeRange === "1d" && supportsHourly ? "hourly" : "daily";
+  const shown = data?.metrics.length ?? 0;
+  const total = data?.total_available ?? 0;
+  const hidden = Math.max(total - shown, 0);
+  const syncLine = data?.last_sync
+    ? `${new Date(data.last_sync).toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}${data.last_sources?.length ? ` · ${data.last_sources.join(", ")}` : ""}`
+    : "never";
 
   return (
     <>
-      <DailyOverview />
+      <PageHeader
+        kicker={formatFullDate(new Date())}
+        title="Today"
+        actions={
+          isDesktop ? (
+            <>
+              <span
+                style={{
+                  font: "400 11.5px var(--font-body)",
+                  color: "var(--color-neutral-600)",
+                }}
+              >
+                Last sync {syncLine}
+              </span>
+              <Link
+                to="/settings?tab=sources"
+                className="btn btn-secondary"
+                style={{ fontSize: 12 }}
+              >
+                Sync now
+              </Link>
+            </>
+          ) : (
+            <span
+              style={{
+                font: "400 11px var(--font-body)",
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              Sync {syncLine}
+            </span>
+          )
+        }
+      />
 
-      <div className="mt-8">
-        <div className="flex flex-wrap items-center gap-4 mb-4">
-          {!isLoading && (
-            <MetricSelector
-              options={options}
-              value={metric}
-              onChange={setMetric}
-            />
-          )}
-          <TimeRangeSelector
-            value={timeRange}
-            onChange={(v) => { setTimeRange(v as TimeRange); setOffset(0); }}
-            options={["1d", "7d", "30d", "90d", "1y"]}
-            onPrev={() => setOffset((o) => o + 1)}
-            onNext={() => setOffset((o) => Math.max(0, o - 1))}
-            canGoNext={offset > 0}
-            dateLabel={formatDateLabel(start, end)}
-          />
-        </div>
+      <HeroStrip metrics={heroes} loading={state === "loading"} />
 
-        <TimeSeriesChart
-          metric={metric}
-          start={start}
-          end={end}
-          label={selected?.label ?? metric}
-          unit={selected?.unit ?? ""}
-          agg={agg}
-          multiplier={selected?.multiplier ?? 1}
+      <div
+        className="flex items-baseline justify-between page-x"
+        style={{
+          paddingTop: isDesktop ? 26 : 14,
+          paddingBottom: isDesktop ? 12 : 8,
+        }}
+      >
+        <h2 style={{ fontSize: isDesktop ? 19 : 15, fontWeight: 700 }}>
+          All metrics
+        </h2>
+        <RangeControl
+          options={RANGES}
+          value={range}
+          onChange={setRange}
+          name="dashboard-range"
         />
       </div>
+
+      {message ? (
+        <p
+          className="page-x"
+          style={{
+            color: "var(--color-neutral-600)",
+            fontSize: 13,
+            paddingTop: 4,
+          }}
+        >
+          {message}
+        </p>
+      ) : isDesktop ? (
+        <MetricsTable
+          groups={groups}
+          range={range}
+          loading={state === "loading"}
+        />
+      ) : (
+        <MetricRows groups={groups} loading={state === "loading"} />
+      )}
+
+      <div
+        className="page-x flex items-center gap-6 flex-wrap"
+        style={{
+          borderTop: "2px solid var(--color-text)",
+          paddingTop: 16,
+          paddingBottom: 16,
+          marginTop: "auto",
+        }}
+      >
+        <Link
+          to="/settings?tab=front-page"
+          className="btn btn-ghost"
+          style={{ fontSize: 12.5 }}
+        >
+          Show {hidden} more metrics →
+        </Link>
+        <Link to="/trends" className="btn btn-ghost" style={{ fontSize: 12.5 }}>
+          Open in Trends →
+        </Link>
+        {/* Correlations needs width the phone does not have, so its entry
+            point falls away below the breakpoint. */}
+        {isDesktop ? (
+          <>
+            <Link
+              to="/correlations"
+              className="btn btn-ghost"
+              style={{ fontSize: 12.5 }}
+            >
+              Correlate two metrics →
+            </Link>
+            <span
+              style={{
+                marginLeft: "auto",
+                font: "400 11.5px var(--font-body)",
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              {shown} of {total} metrics shown · edit visibility in Settings
+            </span>
+          </>
+        ) : null}
+      </div>
     </>
+  );
+}
+
+function MetricsTable({
+  groups,
+  range,
+  loading,
+}: {
+  groups: MetricGroupSection[];
+  range: DashboardRange;
+  loading: boolean;
+}) {
+  const columns = 7;
+
+  if (loading && groups.length === 0) {
+    return <TableSkeleton columns={columns} range={range} />;
+  }
+
+  if (groups.length === 0) {
+    return (
+      <p
+        className="page-x"
+        style={{ color: "var(--color-neutral-600)", fontSize: 13 }}
+      >
+        No metrics selected. Pick which metrics the table lists in Settings.
+      </p>
+    );
+  }
+
+  return (
+    <table className="table">
+      <TableHead range={range} />
+      <tbody>
+        {groups.map((group) => (
+          <MetricGroup key={group.category} group={group} columns={columns} />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TableHead({ range }: { range: DashboardRange }) {
+  return (
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th style={{ textAlign: "right", width: 130 }}>Latest</th>
+        <th style={{ textAlign: "right", width: 90 }}>Δ 7d</th>
+        <th style={{ textAlign: "right", width: 150 }}>{range} range</th>
+        <th style={{ width: 200 }}>{range}</th>
+        <th style={{ width: 150 }}>Source</th>
+        <th style={{ width: 110 }}>Updated</th>
+      </tr>
+    </thead>
+  );
+}
+
+function MetricGroup({
+  group,
+  columns,
+}: {
+  group: MetricGroupSection;
+  columns: number;
+}) {
+  return (
+    <>
+      <tr className="grp">
+        <td colSpan={columns} className="kick">
+          {group.label}
+        </td>
+      </tr>
+      {group.metrics.map((m) => (
+        <MetricRow key={m.metric_name} metric={m} />
+      ))}
+    </>
+  );
+}
+
+function MetricRow({ metric: m }: { metric: FrontPageMetric }) {
+  return (
+    <tr>
+      <td style={{ fontWeight: 500 }}>
+        <Link
+          to={`/metrics?metric=${encodeURIComponent(m.metric_name)}`}
+          style={{ color: "inherit" }}
+        >
+          {m.label || m.metric_name}
+        </Link>
+      </td>
+      <td
+        className="num"
+        style={{ textAlign: "right", fontWeight: 700, whiteSpace: "nowrap" }}
+      >
+        {displayValue(m)}{" "}
+        <span style={{ fontWeight: 400, color: "var(--color-neutral-600)" }}>
+          {m.unit}
+        </span>
+      </td>
+      <td
+        className="num"
+        style={{
+          textAlign: "right",
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: deltaColor(m.metric_name, m.delta_7d),
+        }}
+      >
+        {displayDelta(m)}
+      </td>
+      <td
+        className="num"
+        style={{
+          textAlign: "right",
+          fontSize: 12.5,
+          color: "var(--color-neutral-700)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {displayRange(m)}
+      </td>
+      <td style={{ paddingTop: 8, paddingBottom: 8 }}>
+        <Sparkline
+          values={m.series}
+          width={180}
+          height={22}
+          cssWidth={180}
+          stroke="var(--color-neutral-500)"
+          strokeWidth={1.4}
+        />
+      </td>
+      <td style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+        {m.source || "—"}
+      </td>
+      <td style={{ fontSize: 12.5, color: "var(--color-neutral-600)" }}>
+        {m.time ? formatTimeAgo(m.time) : "—"}
+      </td>
+    </tr>
+  );
+}
+
+/** The rules and labels render immediately; only the values are pending. */
+function TableSkeleton({
+  columns,
+  range,
+}: {
+  columns: number;
+  range: DashboardRange;
+}) {
+  return (
+    <table className="table">
+      <TableHead range={range} />
+      <tbody>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <tr key={i}>
+            {Array.from({ length: columns }).map((_, j) => (
+              <td key={j}>
+                <span
+                  className="skel"
+                  style={{ width: j === 0 ? 120 : 60, height: 14 }}
+                />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

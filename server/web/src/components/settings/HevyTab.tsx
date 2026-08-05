@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  disconnectHevy,
   fetchHevyStatus,
   saveHevyCredentials,
   triggerHevySync,
-  disconnectHevy,
   type HevyStatus,
 } from "../../api";
+import { MONO, TabHeader } from "./parts";
 
 /** Today as YYYY-MM-DD, the default ingest cutoff. */
 function today(): string {
@@ -33,20 +34,6 @@ export default function HevyTab() {
   useEffect(() => {
     load();
   }, [load]);
-
-  if (error && !status) {
-    return (
-      <div>
-        <p className="text-red-400 mb-4">{error}</p>
-        <button onClick={load} className="text-sm text-cyan-400 hover:underline">
-          Retry
-        </button>
-      </div>
-    );
-  }
-  if (!status) {
-    return <p className="text-zinc-500">Loading...</p>;
-  }
 
   async function handleSave() {
     setSaving(true);
@@ -76,7 +63,11 @@ export default function HevyTab() {
   }
 
   async function handleDisconnect() {
-    if (!confirm("Disconnect Hevy? The API key is removed. Sets already imported stay in the database.")) {
+    if (
+      !confirm(
+        "Disconnect Hevy? The API key is removed. Sets already imported stay in the database.",
+      )
+    ) {
       return;
     }
     try {
@@ -88,118 +79,161 @@ export default function HevyTab() {
     }
   }
 
-  // Step 1: No API key stored yet.
-  if (!status.configured) {
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
-        <h3 className="text-zinc-200 font-medium mb-2">Connect Hevy</h3>
-        <p className="text-zinc-400 text-sm mb-4">
-          Create an API key at{" "}
-          <a
-            href="https://hevy.com/settings?developer"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-cyan-400 hover:underline"
-          >
-            hevy.com/settings
-          </a>
-          . API access requires an active Hevy Pro subscription.
+  return (
+    <>
+      <TabHeader title="Hevy">
+        Hevy's event feed is polled on a schedule. API access needs an active
+        Hevy Pro subscription; create a key at hevy.com/settings.
+      </TabHeader>
+
+      {error ? (
+        <p
+          style={{
+            color: "var(--color-accent-700)",
+            fontSize: 13,
+            paddingTop: 16,
+          }}
+        >
+          {error}{" "}
+          <button type="button" className="btn btn-ghost" onClick={load}>
+            Retry
+          </button>
         </p>
-        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">
-              API Key
-            </label>
+      ) : null}
+
+      {!status ? (
+        <p
+          style={{
+            color: "var(--color-neutral-600)",
+            fontSize: 13,
+            paddingTop: 16,
+          }}
+        >
+          Loading…
+        </p>
+      ) : !status.configured ? (
+        <div style={{ paddingTop: 20, maxWidth: 520 }}>
+          <div className="field" style={{ marginBottom: 14 }}>
+            <label htmlFor="hevy-key">API key</label>
             <input
+              id="hevy-key"
+              className="input"
+              style={MONO}
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-cyan-600"
               placeholder="Hevy API key"
             />
           </div>
-          <div>
-            <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">
-              Import From
-            </label>
+          <div className="field" style={{ marginBottom: 16 }}>
+            <label htmlFor="hevy-from">Import from</label>
             <input
+              id="hevy-from"
+              className="input"
+              style={MONO}
               type="date"
               value={syncFrom}
               onChange={(e) => setSyncFrom(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-cyan-600"
             />
-            <p className="text-xs text-zinc-500 mt-1">
-              Workouts that started before this date are ignored. Keep it at the switchover
-              date so an Alpha Progression history later uploaded to Hevy cannot be counted
-              a second time.
+            <p
+              style={{
+                font: "400 12px/1.5 var(--font-body)",
+                color: "var(--color-neutral-600)",
+                margin: "6px 0 0",
+              }}
+            >
+              Workouts that started before this date are ignored. Keep it at the
+              switchover date so an Alpha Progression history later uploaded to
+              Hevy cannot be counted a second time.
             </p>
           </div>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving || !apiKey}
-          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
-        >
-          {saving ? "Verifying..." : "Save API Key"}
-        </button>
-      </div>
-    );
-  }
-
-  // Step 2: Connected.
-  return (
-    <div>
-      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full" />
-            <span className="text-zinc-200 font-medium">Connected</span>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="px-3 py-1.5 text-sm bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-md transition-colors"
-            >
-              {syncing ? "Syncing..." : "Sync Now"}
-            </button>
-            <button
-              onClick={handleDisconnect}
-              className="px-3 py-1.5 text-sm bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-md transition-colors"
-            >
-              Disconnect
-            </button>
-          </div>
-        </div>
-        <p className="text-xs text-zinc-500">Importing workouts from {status.sync_from}</p>
-        {status.last_sync && (
-          <p className="text-xs text-zinc-500">
-            Last sync: {new Date(status.last_sync).toLocaleString()}
-          </p>
-        )}
-      </div>
-
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-zinc-300 mb-2">Replace API Key</h3>
-        <div className="flex gap-2">
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-cyan-600"
-            placeholder="New Hevy API key"
-          />
           <button
+            type="button"
+            className="btn btn-primary"
             onClick={handleSave}
             disabled={saving || !apiKey}
-            className="px-4 py-2 text-sm bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-200 rounded-lg transition-colors"
           >
-            {saving ? "Verifying..." : "Save"}
+            {saving ? "Verifying…" : "Save API key"}
           </button>
         </div>
-      </div>
-    </div>
+      ) : (
+        <>
+          <div
+            style={{
+              border: "2px solid var(--color-text)",
+              padding: "22px 24px",
+              marginTop: 20,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                style={{
+                  width: 11,
+                  height: 11,
+                  background: "var(--color-accent)",
+                }}
+              />
+              <span style={{ font: "600 14px var(--font-body)" }}>Connected</span>
+              <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12 }}
+                  onClick={handleSync}
+                  disabled={syncing}
+                >
+                  {syncing ? "Syncing…" : "Sync now"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12 }}
+                  onClick={handleDisconnect}
+                >
+                  Disconnect
+                </button>
+              </span>
+            </div>
+            <div
+              style={{
+                font: "400 12px var(--font-body)",
+                color: "var(--color-neutral-600)",
+                marginTop: 8,
+              }}
+            >
+              Importing workouts from {status.sync_from}
+              {status.last_sync
+                ? ` · last sync ${new Date(status.last_sync).toLocaleString("en-GB")}`
+                : ""}
+            </div>
+          </div>
+
+          <div style={{ paddingTop: 24, maxWidth: 520 }}>
+            <label className="kick" htmlFor="hevy-replace">
+              Replace API key
+            </label>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input
+                id="hevy-replace"
+                className="input"
+                style={MONO}
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="New Hevy API key"
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleSave}
+                disabled={saving || !apiKey}
+              >
+                {saving ? "Verifying…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }

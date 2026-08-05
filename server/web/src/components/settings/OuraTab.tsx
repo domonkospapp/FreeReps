@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  authorizeOura,
+  disconnectOura,
   fetchOuraStatus,
   saveOuraCredentials,
-  authorizeOura,
   triggerOuraSync,
-  disconnectOura,
   type OuraStatus,
 } from "../../api";
+import { MONO, TabHeader } from "./parts";
 
 export default function OuraTab() {
   const [status, setStatus] = useState<OuraStatus | null>(null);
@@ -30,28 +31,11 @@ export default function OuraTab() {
     load();
   }, [load]);
 
-  // Check for error from OAuth callback redirect.
+  // The OAuth callback redirects back here with an error in the query string.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ouraError = params.get("error");
-    if (ouraError) {
-      setError(`Oura authorization failed: ${ouraError}`);
-    }
+    const ouraError = new URLSearchParams(window.location.search).get("error");
+    if (ouraError) setError(`Oura authorization failed: ${ouraError}`);
   }, []);
-
-  if (error) {
-    return (
-      <div>
-        <p className="text-red-400 mb-4">{error}</p>
-        <button onClick={load} className="text-sm text-cyan-400 hover:underline">
-          Retry
-        </button>
-      </div>
-    );
-  }
-  if (!status) {
-    return <p className="text-zinc-500">Loading...</p>;
-  }
 
   async function handleSaveCredentials() {
     setSaving(true);
@@ -88,7 +72,9 @@ export default function OuraTab() {
   }
 
   async function handleDisconnect() {
-    if (!confirm("Disconnect Oura Ring? This removes stored tokens and credentials.")) {
+    if (
+      !confirm("Disconnect Oura Ring? This removes stored tokens and credentials.")
+    ) {
       return;
     }
     try {
@@ -101,139 +87,215 @@ export default function OuraTab() {
     }
   }
 
-  // Step 1: No credentials saved yet — show credential form.
-  if (!status.configured) {
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
-        <h3 className="text-zinc-200 font-medium mb-2">Connect Oura Ring</h3>
-        <p className="text-zinc-400 text-sm mb-4">
-          Register an app at{" "}
-          <a
-            href="https://cloud.ouraring.com/oauth/applications"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-cyan-400 hover:underline"
-          >
-            cloud.ouraring.com
-          </a>{" "}
-          and enter your credentials below.
+  return (
+    <>
+      <TabHeader title="Oura">
+        Oura is polled on a schedule. Register an app at
+        cloud.ouraring.com, save its credentials here, then authorize once.
+      </TabHeader>
+
+      {error ? (
+        <p
+          style={{
+            color: "var(--color-accent-700)",
+            fontSize: 13,
+            paddingTop: 16,
+          }}
+        >
+          {error}{" "}
+          <button type="button" className="btn btn-ghost" onClick={load}>
+            Retry
+          </button>
         </p>
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">
-              Client ID
-            </label>
+      ) : null}
+
+      {!status ? (
+        <p
+          style={{
+            color: "var(--color-neutral-600)",
+            fontSize: 13,
+            paddingTop: 16,
+          }}
+        >
+          Loading…
+        </p>
+      ) : !status.configured ? (
+        <div style={{ paddingTop: 20, maxWidth: 520 }}>
+          <div className="field" style={{ marginBottom: 14 }}>
+            <label htmlFor="oura-id">Client ID</label>
             <input
-              type="text"
+              id="oura-id"
+              className="input"
+              style={MONO}
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-cyan-600"
               placeholder="Oura client ID"
             />
           </div>
-          <div>
-            <label className="block text-xs text-zinc-500 uppercase tracking-wide mb-1">
-              Client Secret
-            </label>
+          <div className="field" style={{ marginBottom: 16 }}>
+            <label htmlFor="oura-secret">Client secret</label>
             <input
+              id="oura-secret"
+              className="input"
+              style={MONO}
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-cyan-600"
               placeholder="Oura client secret"
             />
           </div>
-        </div>
-        <button
-          onClick={handleSaveCredentials}
-          disabled={saving || !clientId || !clientSecret}
-          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
-        >
-          {saving ? "Saving..." : "Save Credentials"}
-        </button>
-      </div>
-    );
-  }
-
-  // Step 2: Credentials saved but not yet authorized.
-  if (!status.connected) {
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="w-2 h-2 bg-amber-400 rounded-full" />
-          <span className="text-zinc-200 font-medium">Credentials Saved</span>
-        </div>
-        <p className="text-zinc-400 text-sm mb-4">
-          Client ID: <code className="text-zinc-300">{status.client_id}</code>
-        </p>
-        <div className="flex gap-2">
           <button
-            onClick={handleConnect}
-            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-colors"
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSaveCredentials}
+            disabled={saving || !clientId || !clientSecret}
           >
-            Authorize with Oura
-          </button>
-          <button
-            onClick={handleDisconnect}
-            className="px-3 py-2 text-sm bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg transition-colors"
-          >
-            Remove
+            {saving ? "Saving…" : "Save credentials"}
           </button>
         </div>
-      </div>
-    );
-  }
+      ) : (
+        <StatusPanel
+          status={status}
+          syncing={syncing}
+          onSync={handleSync}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+        />
+      )}
+    </>
+  );
+}
 
-  // Step 3: Fully connected — show status and controls.
+function StatusPanel({
+  status,
+  syncing,
+  onSync,
+  onConnect,
+  onDisconnect,
+}: {
+  status: OuraStatus;
+  syncing: boolean;
+  onSync: () => void;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}) {
+  const connected = status.connected;
+
   return (
-    <div>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full" />
-            <span className="text-zinc-200 font-medium">Connected</span>
-          </div>
-          <div className="flex gap-2">
+    <>
+      <div
+        style={{
+          border: "2px solid var(--color-text)",
+          padding: "22px 24px",
+          marginTop: 20,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              width: 11,
+              height: 11,
+              background: connected
+                ? "var(--color-accent)"
+                : "var(--color-neutral-500)",
+            }}
+          />
+          <span style={{ font: "600 14px var(--font-body)" }}>
+            {connected ? "Connected" : "Credentials saved"}
+          </span>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {connected ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 12 }}
+                onClick={onSync}
+                disabled={syncing}
+              >
+                {syncing ? "Syncing…" : "Sync now"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ fontSize: 12 }}
+                onClick={onConnect}
+              >
+                Authorize with Oura
+              </button>
+            )}
             <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="px-3 py-1.5 text-sm bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-md transition-colors"
-            >
-              {syncing ? "Syncing..." : "Sync Now"}
-            </button>
-            <button
-              onClick={handleDisconnect}
-              className="px-3 py-1.5 text-sm bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-md transition-colors"
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: 12 }}
+              onClick={onDisconnect}
             >
               Disconnect
             </button>
-          </div>
+          </span>
         </div>
-        <p className="text-xs text-zinc-500">
-          Client ID: {status.client_id}
-        </p>
-        {status.expires_at && (
-          <p className="text-xs text-zinc-500">
-            Token expires: {new Date(status.expires_at).toLocaleString()}
-          </p>
-        )}
+        <div
+          style={{
+            font: "400 12px var(--font-body)",
+            color: "var(--color-neutral-600)",
+            marginTop: 8,
+          }}
+        >
+          {connected
+            ? status.expires_at
+              ? `Token valid until ${new Date(status.expires_at).toLocaleString("en-GB")}`
+              : "Token stored"
+            : "Not authorized yet — the app cannot read your data until you do."}
+        </div>
       </div>
 
-      {status.sync_states && Object.keys(status.sync_states).length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-zinc-300 mb-3">Sync Status</h3>
-          <div className="grid gap-2">
-            {Object.entries(status.sync_states)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([dataType, lastSync]) => (
-                <div key={dataType} className="flex justify-between text-sm">
-                  <span className="text-zinc-400">{dataType.replace(/_/g, " ")}</span>
-                  <span className="text-zinc-500 font-mono">{lastSync}</span>
-                </div>
-              ))}
-          </div>
+      <div style={{ paddingTop: 20, maxWidth: 520 }}>
+        <label className="kick" htmlFor="oura-client">
+          Client ID
+        </label>
+        <input
+          id="oura-client"
+          className="input"
+          style={{ ...MONO, marginTop: 8 }}
+          value={status.client_id ?? ""}
+          readOnly
+        />
+      </div>
+
+      {status.sync_states && Object.keys(status.sync_states).length > 0 ? (
+        <div style={{ paddingTop: 30 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700 }}>Pull schedule</h3>
+          <table className="table" style={{ marginTop: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 200, paddingLeft: 0 }}>Job</th>
+                <th style={{ paddingRight: 0 }}>Last run</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(status.sync_states)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([job, lastSync]) => (
+                  <tr key={job}>
+                    <td style={{ font: "500 13.5px var(--font-body)", paddingLeft: 0 }}>
+                      {job.replace(/_/g, " ")}
+                    </td>
+                    <td
+                      className="num"
+                      style={{
+                        ...MONO,
+                        color: "var(--color-neutral-700)",
+                        paddingRight: 0,
+                      }}
+                    >
+                      {lastSync}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
-      )}
-    </div>
+      ) : null}
+    </>
   );
 }

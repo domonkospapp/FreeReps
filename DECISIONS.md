@@ -19,6 +19,50 @@ is as recorded there; where the record named no alternative, none is claimed.
 
 ---
 
+## 2026-08-05 — The web UI runs on the Modernist design system, with one phone breakpoint
+
+**Decided:** 2026-08-05
+
+**Decision.** The web UI is rebuilt against an external design package
+(`design_handoff_freereps_redesign`) rather than continuing the dark Tailwind
+default. What that fixes in structure, beyond the visual system:
+
+- **The front page is one request.** `GET /api/v1/metrics/latest` returns, per
+  visible metric, the latest value, a 7-day delta, a percentile range and a
+  daily series. `GET /api/v1/dashboard/init` is removed; the dashboard no longer
+  calls `available-metrics` or `timeseries` at all.
+- **Sparklines are inline SVG `<polyline>`**, so no chart library loads on the
+  front page. uPlot remains only on the workout detail route.
+- **One breakpoint at 768px**, not a second app. The same page component picks
+  between a table body and a row body via `useMediaQuery`.
+- **Metrics and Correlations are desktop-only.** Both need width the phone does
+  not have — a 248px rail beside a 420px chart, and a 720×520 scatter beside a
+  440px column. Below 768px they stay reachable by URL and render a notice.
+
+**Reasoning.** The old dashboard rendered ten metric cards plus a full
+time-series chart on load: three API calls and a chart library before the first
+number appeared. Carrying ~30 floats per metric in the latest payload costs less
+than a second round trip, and it lets the front page answer "how am I doing
+today" without loading a plotting library at all. Routing every colour through
+tokens is what makes the three-way theme switch a variable swap rather than a
+second stylesheet.
+
+**Deviations from the package, and why.** The design's Settings rail names five
+tabs; the shipped rail has seven. Hevy and Import drive working integrations
+that the package does not mention, and dropping them with the old layout would
+have removed function, not styling. The Metrics chart is inline SVG rather than
+the lazy-loaded uPlot the package suggests, because the design it specifies —
+band, gridlines, baseline, two polylines — needs no plotting library.
+
+**The stated range is p05–p95, not min–max.** One dropped sensor reading would
+widen a min/max range enough to make the number meaningless.
+
+**Trigger to re-open.** A screen whose data cannot be served from one request
+without a second round trip, or a phone layout that needs different information
+rather than a different arrangement of the same information.
+
+---
+
 ## 2026-08-05 — How training volume and estimated strength are computed
 
 **Decided:** 2026-08-05

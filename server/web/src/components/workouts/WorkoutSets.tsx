@@ -50,9 +50,7 @@ export default function WorkoutSets({
   if (!isStrength) return null;
 
   if (isLoading) {
-    return (
-      <div className="bg-zinc-900 rounded-lg p-4 animate-pulse h-32" />
-    );
+    return <span className="skel" style={{ width: "100%", height: 120 }} />;
   }
 
   if (error || !data || data.length === 0) {
@@ -83,55 +81,88 @@ export default function WorkoutSets({
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-zinc-400 mb-4">
-        Exercises
-      </h3>
-      <div className="space-y-4">
+    <div>
+      <h2 style={{ fontSize: 19, fontWeight: 700 }}>Exercises</h2>
+      <div style={{ borderTop: "2px solid var(--color-text)", marginTop: 12 }}>
         {exercises.map((ex) => (
-          <div key={ex.name}>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-sm font-medium text-zinc-200">
-                {ex.name}
-              </span>
-              {ex.equipment && (
-                <span className="text-xs text-zinc-500">{ex.equipment}</span>
-              )}
-              {ex.muscle && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+          <div key={ex.name} style={{ paddingTop: 18, paddingBottom: 6 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 10,
+                marginBottom: 8,
+              }}
+            >
+              <span style={{ font: "600 14px var(--font-body)" }}>{ex.name}</span>
+              {ex.equipment ? (
+                <span
+                  style={{
+                    font: "400 12px var(--font-body)",
+                    color: "var(--color-neutral-600)",
+                  }}
+                >
+                  {ex.equipment}
+                </span>
+              ) : null}
+              {ex.muscle ? (
+                <span className="tag tag-neutral">
                   {ex.muscle.replace(/_/g, " ")}
                 </span>
-              )}
+              ) : null}
             </div>
-            <table className="w-full text-sm">
+            <table className="table">
               <thead>
-                <tr className="text-xs text-zinc-500 border-b border-zinc-800">
-                  <th className="text-left py-1 w-12">Set</th>
-                  <th className="text-right py-1">Weight</th>
-                  <th className="text-right py-1">Reps</th>
-                  <th className="text-right py-1">RIR / RPE</th>
+                <tr>
+                  <th style={{ width: 60, paddingLeft: 0 }}>Set</th>
+                  <th style={{ textAlign: "right" }}>Weight</th>
+                  <th style={{ textAlign: "right" }}>Reps</th>
+                  <th style={{ textAlign: "right", paddingRight: 0 }}>
+                    RIR / RPE
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {ex.sets.map((set, i) => (
                   <tr
                     key={i}
-                    className={`border-b border-zinc-800/50 ${
-                      set.IsWarmup ? "text-zinc-600" : "text-zinc-300"
-                    }`}
+                    style={{
+                      color: set.IsWarmup
+                        ? "var(--color-neutral-500)"
+                        : "var(--color-text)",
+                    }}
                   >
-                    <td className="py-1 tabular-nums">
+                    <td
+                      className="num"
+                      style={{ paddingLeft: 0, paddingTop: 8, paddingBottom: 8 }}
+                    >
                       {set.IsWarmup ? "W" : set.SetNumber}
                     </td>
-                    <td className="text-right py-1 tabular-nums">
+                    <td
+                      className="num"
+                      style={{ textAlign: "right", paddingTop: 8, paddingBottom: 8 }}
+                    >
                       {set.WeightKg > 0
                         ? `${set.WeightKg.toFixed(1)} kg`
                         : set.IsBodyweightPlus
                           ? "BW"
-                          : "-"}
+                          : "—"}
                     </td>
-                    <td className="text-right py-1 tabular-nums">{set.Reps}</td>
-                    <td className="text-right py-1 tabular-nums">
+                    <td
+                      className="num"
+                      style={{ textAlign: "right", paddingTop: 8, paddingBottom: 8 }}
+                    >
+                      {set.Reps}
+                    </td>
+                    <td
+                      className="num"
+                      style={{
+                        textAlign: "right",
+                        paddingRight: 0,
+                        paddingTop: 8,
+                        paddingBottom: 8,
+                      }}
+                    >
                       {formatEffort(set)}
                     </td>
                   </tr>

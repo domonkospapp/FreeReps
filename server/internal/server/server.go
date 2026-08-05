@@ -136,11 +136,11 @@ func (s *Server) routes() {
 		r.Get("/api/v1/me", s.handleMe)
 
 		// Dashboard API endpoints
-		r.Get("/api/v1/dashboard/init", s.handleDashboardInit)
 		r.Get("/api/v1/metrics/latest", s.handleLatestMetrics)
 		r.Get("/api/v1/metrics", s.handleQueryMetrics)
 		r.Get("/api/v1/sleep", s.handleQuerySleep)
 		r.Get("/api/v1/workouts", s.handleQueryWorkouts)
+		r.Get("/api/v1/workouts/zones", s.handleWorkoutZones)
 		r.Get("/api/v1/workouts/{id}", s.handleGetWorkout)
 		r.Get("/api/v1/workouts/{id}/sets", s.handleWorkoutSets)
 		r.Get("/api/v1/metrics/stats", s.handleMetricStats)
@@ -149,6 +149,7 @@ func (s *Server) routes() {
 		r.Get("/api/v1/allowlist", s.handleAllowlist)
 		r.Get("/api/v1/metrics/available", s.handleAvailableMetrics)
 		r.Put("/api/v1/metrics/visibility", s.handleSaveMetricVisibility)
+		r.Put("/api/v1/preferences/front-page-heroes", s.handleSaveFrontPageHeroes)
 
 		// Health data endpoints
 		r.Get("/api/v1/ecg", s.handleGetECGRecordings)

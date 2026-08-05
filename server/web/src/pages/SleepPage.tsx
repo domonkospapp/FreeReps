@@ -1,110 +1,505 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { fetchSleep, SleepStage } from "../api";
-import TimeRangeSelector from "../components/TimeRangeSelector";
-import SleepMetricCards from "../components/sleep/SleepMetricCards";
-import Hypnogram from "../components/sleep/Hypnogram";
-import SleepHistoryChart from "../components/sleep/SleepHistoryChart";
-import { daysFromRange, formatDateLabel, type TimeRange } from "../utils/timeRange";
+import { useMemo, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import { fetchSleep, type SleepSession, type SleepStage } from "../api";
+import PageHeader from "../components/PageHeader";
+import RangeControl from "../components/RangeControl";
+import Hypnogram, { hourTicks } from "../components/sleep/Hypnogram";
+import NightsChart from "../components/sleep/NightsChart";
+import StageComposition, {
+  type StageTotals,
+} from "../components/sleep/StageComposition";
+import { useIsDesktop } from "../hooks/useMediaQuery";
+import {
+  formatClock,
+  formatDayMonth,
+  formatHoursMinutes,
+} from "../utils/format";
+import { stageColor } from "../utils/stageColors";
+import { queryMessage, queryState } from "../utils/queryState";
+
+const RANGES = ["7d", "30d", "90d"] as const;
+type Range = (typeof RANGES)[number];
+
+const RANGE_DAYS: Record<Range, number> = { "7d": 7, "30d": 30, "90d": 90 };
 
 export default function SleepPage() {
-  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
-  const [offset, setOffset] = useState(0);
+  const isDesktop = useIsDesktop();
+  const [params, setParams] = useSearchParams();
+  const range = (params.get("range") as Range) ?? "30d";
 
-  const days = daysFromRange(timeRange);
-  const endDate = new Date(Date.now() - offset * days * 86400000);
-  const startDate = new Date(endDate.getTime() - days * 86400000);
-  const end = endDate.toISOString().split("T")[0];
-  const start = startDate.toISOString().split("T")[0];
+  const days = RANGE_DAYS[range];
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86400000);
+  const endISO = end.toISOString().split("T")[0];
+  const startISO = start.toISOString().split("T")[0];
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["sleep", start, end],
-    queryFn: () => fetchSleep(start, end),
+  const query = useQuery({
+    queryKey: ["sleep", startISO, endISO],
+    queryFn: () => fetchSleep(startISO, endISO),
   });
+  const state = queryState(query);
+  const message = queryMessage(state, query.error);
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-8 w-48 bg-zinc-900 rounded animate-pulse" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-zinc-900 rounded-lg p-4 animate-pulse h-20"
-            />
-          ))}
-        </div>
-        <div className="bg-zinc-900 rounded-lg p-4 animate-pulse h-48" />
-      </div>
-    );
-  }
+  const sessions = query.data?.sessions ?? [];
+  const stages = query.data?.stages ?? [];
 
-  if (error || !data) {
-    return (
-      <div className="text-zinc-500 text-sm p-4 bg-zinc-900 rounded-lg">
-        Failed to load sleep data.
-      </div>
-    );
-  }
+  // The API returns newest first; the last night is the summary's subject.
+  const last = sessions.length > 0 ? sessions[0] : null;
 
-  const sessions = data.sessions ?? [];
-  const stages = data.stages ?? [];
+  const lastNightStages = useMemo(
+    () => (last ? stagesForSession(stages, last) : []),
+    [stages, last],
+  );
 
-  // Most recent session for the summary / hypnogram
-  const lastSession = sessions.length > 0 ? sessions[0] : null;
+  const totals = useMemo(() => stageTotals(lastNightStages), [lastNightStages]);
 
-  // Filter stages belonging to the most recent night using session timestamps
-  const lastNightStages: SleepStage[] = lastSession
-    ? stages.filter((s) => {
-        const st = new Date(s.StartTime).getTime();
-        return (
-          st >= new Date(lastSession.SleepStart).getTime() &&
-          st < new Date(lastSession.SleepEnd).getTime()
-        );
-      })
-    : [];
+  const setRange = (next: Range) => {
+    const p = new URLSearchParams(params);
+    p.set("range", next);
+    setParams(p, { replace: true });
+  };
+
+  const averageHours =
+    sessions.length > 0
+      ? sessions.reduce((a, s) => a + s.TotalSleep, 0) / sessions.length
+      : null;
+
+  const awakenings = lastNightStages.filter((s) => s.Stage === "Awake").length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100">Sleep</h2>
-        <TimeRangeSelector
-          value={timeRange}
-          onChange={(v) => { setTimeRange(v as TimeRange); setOffset(0); }}
-          options={["7d", "30d", "90d"]}
-          onPrev={() => setOffset((o) => o + 1)}
-          onNext={() => setOffset((o) => Math.max(0, o - 1))}
-          canGoNext={offset > 0}
-          dateLabel={formatDateLabel(start, end)}
+    <>
+      <PageHeader
+        kicker={
+          last
+            ? `Last night — ${new Date(last.Date).toLocaleDateString("en-GB", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })}`
+            : "No sleep recorded"
+        }
+        title="Sleep"
+        actions={
+          <RangeControl
+            options={RANGES}
+            value={range}
+            onChange={setRange}
+            name="sleep-range"
+          />
+        }
+      />
+
+      {message ? (
+        <p
+          className="page-x"
+          style={{ color: "var(--color-neutral-600)", fontSize: 13 }}
+        >
+          {message}
+        </p>
+      ) : state === "loading" ? (
+        <div
+          className="page-x"
+          style={{ borderTop: "2px solid var(--color-text)", paddingTop: 24 }}
+        >
+          <span className="skel" style={{ width: 180, height: 44 }} />
+        </div>
+      ) : !last ? (
+        <p
+          className="page-x"
+          style={{ color: "var(--color-neutral-600)", fontSize: 13 }}
+        >
+          No sleep sessions in this window.
+        </p>
+      ) : isDesktop ? (
+        <DesktopSleep
+          session={last}
+          stages={lastNightStages}
+          totals={totals}
+          sessions={sessions}
+          allStages={stages}
+          averageHours={averageHours}
+          awakenings={awakenings}
+        />
+      ) : (
+        <MobileSleep
+          session={last}
+          stages={lastNightStages}
+          totals={totals}
+          sessions={sessions}
+        />
+      )}
+    </>
+  );
+}
+
+function DesktopSleep({
+  session,
+  stages,
+  totals,
+  sessions,
+  allStages,
+  averageHours,
+  awakenings,
+}: {
+  session: SleepSession;
+  stages: SleepStage[];
+  totals: StageTotals;
+  sessions: SleepSession[];
+  allStages: SleepStage[];
+  averageHours: number | null;
+  awakenings: number;
+}) {
+  const efficiency =
+    session.InBed > 0 ? (session.Asleep / session.InBed) * 100 : null;
+  const ticks = hourTicks(stages);
+
+  return (
+    <>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          borderTop: "2px solid var(--color-text)",
+          borderBottom: "2px solid var(--color-text)",
+        }}
+      >
+        <HeroCell
+          label="Total sleep"
+          value={formatHoursMinutes(session.TotalSleep)}
+          meta={
+            averageHours != null
+              ? `${formatHoursMinutes(averageHours)} on average`
+              : ""
+          }
+        />
+        <HeroCell
+          label="Time in bed"
+          value={formatHoursMinutes(session.InBed)}
+          meta={`${formatClock(session.InBedStart)} → ${formatClock(session.InBedEnd)}`}
+        />
+        <HeroCell
+          label="Efficiency"
+          value={efficiency != null ? `${efficiency.toFixed(0)}%` : "—"}
+          meta={`${formatHoursMinutes(totals.Awake)} awake`}
+        />
+        <HeroCell
+          label="Deep"
+          value={formatHoursMinutes(totals.Deep)}
+          meta={pctOf(totals.Deep, session.TotalSleep)}
+        />
+        <HeroCell
+          label="REM"
+          value={formatHoursMinutes(totals.REM)}
+          meta={pctOf(totals.REM, session.TotalSleep)}
         />
       </div>
 
-      {/* Last Night Summary */}
-      {lastSession ? (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-zinc-400">
-            Last Night &mdash;{" "}
-            {new Date(lastSession.Date).toLocaleDateString(undefined, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })}
-          </h3>
-          <SleepMetricCards session={lastSession} />
-        </div>
-      ) : (
-        <div className="text-zinc-500 text-sm p-4 bg-zinc-900 rounded-lg">
-          No sleep sessions found in this time range.
-        </div>
-      )}
+      <Section title="Stage composition">
+        <StageComposition totals={totals} />
+      </Section>
 
-      {/* Hypnogram */}
-      {lastNightStages.length > 0 && <Hypnogram stages={lastNightStages} />}
+      <Section
+        title="Hypnogram"
+        aside={`${formatClock(session.SleepStart)} → ${formatClock(session.SleepEnd)} · ${awakenings} awakening${awakenings === 1 ? "" : "s"}`}
+      >
+        <Hypnogram stages={stages} />
+        <div style={{ position: "relative", height: 20, marginLeft: 52 }}>
+          {ticks.map((t) => (
+            <span
+              key={t.pct}
+              className="num"
+              style={{
+                position: "absolute",
+                left: `${t.pct}%`,
+                transform: "translateX(-50%)",
+                font: "400 11px var(--font-body)",
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              {t.label}
+            </span>
+          ))}
+        </div>
+      </Section>
 
-      {/* Sleep History */}
-      {sessions.length > 0 && (
-        <SleepHistoryChart sessions={sessions} stages={stages} start={start} end={end} />
-      )}
+      <Section
+        title={`Last ${sessions.length} nights`}
+        aside={
+          averageHours != null ? (
+            <>
+              {formatDayMonth(new Date(sessions[sessions.length - 1].Date))} –{" "}
+              {formatDayMonth(new Date(sessions[0].Date))} · average{" "}
+              <span style={{ fontWeight: 700, color: "var(--color-text)" }}>
+                {formatHoursMinutes(averageHours)}
+              </span>
+            </>
+          ) : null
+        }
+      >
+        <NightsChart sessions={sessions} stages={allStages} />
+      </Section>
+    </>
+  );
+}
+
+function MobileSleep({
+  session,
+  stages,
+  totals,
+  sessions,
+}: {
+  session: SleepSession;
+  stages: SleepStage[];
+  totals: StageTotals;
+  sessions: SleepSession[];
+}) {
+  const efficiency =
+    session.InBed > 0 ? (session.Asleep / session.InBed) * 100 : null;
+  const latency =
+    (new Date(session.SleepStart).getTime() -
+      new Date(session.InBedStart).getTime()) /
+    60000;
+
+  return (
+    <>
+      <div className="page-x" style={{ paddingBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+          <span
+            className="num"
+            style={{
+              font: "800 44px/1 var(--font-heading)",
+              letterSpacing: "-0.035em",
+            }}
+          >
+            {formatHoursMinutes(session.TotalSleep)}
+          </span>
+          <span
+            style={{
+              font: "500 13px var(--font-body)",
+              color: "var(--color-neutral-600)",
+            }}
+          >
+            in bed {formatHoursMinutes(session.InBed)}
+            {efficiency != null ? ` · ${efficiency.toFixed(0)}% eff.` : ""}
+          </span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          borderTop: "2px solid var(--color-text)",
+          borderBottom: "2px solid var(--color-text)",
+        }}
+      >
+        <MobileStat label="Deep" value={formatHoursMinutes(totals.Deep)} />
+        <MobileStat
+          label="Efficiency"
+          value={efficiency != null ? `${efficiency.toFixed(0)}%` : "—"}
+        />
+        <MobileStat
+          label="Latency"
+          value={latency > 0 ? `${Math.round(latency)}m` : "—"}
+        />
+      </div>
+
+      <div className="kick page-x" style={{ paddingTop: 16, paddingBottom: 6 }}>
+        Hypnogram · {formatClock(session.SleepStart)} →{" "}
+        {formatClock(session.SleepEnd)}
+      </div>
+      <div className="page-x" style={{ paddingBottom: 14 }}>
+        <Hypnogram stages={stages} compact />
+      </div>
+
+      <div className="page-x" style={{ paddingBottom: 16 }}>
+        <StageComposition totals={totals} compact />
+      </div>
+
+      <div
+        className="kick page-x"
+        style={{
+          borderTop: "2px solid var(--color-text)",
+          paddingTop: 12,
+          paddingBottom: 6,
+        }}
+      >
+        Last {Math.min(sessions.length, 10)} nights
+      </div>
+      <div>
+        {sessions.slice(0, 10).map((s) => (
+          <NightRow key={s.Date} session={s} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function NightRow({ session }: { session: SleepSession }) {
+  const segments = (
+    [
+      ["Deep", session.Deep],
+      ["REM", session.REM],
+      ["Core", session.Core],
+    ] as const
+  ).filter(([, v]) => v > 0);
+  const total = segments.reduce((a, [, v]) => a + v, 0) || 1;
+
+  return (
+    <div className="row" style={{ paddingTop: 10, paddingBottom: 10 }}>
+      <span style={{ font: "500 13px var(--font-body)", width: 44, flex: "none" }}>
+        {new Date(session.Date).toLocaleDateString("en-GB", {
+          weekday: "short",
+        })}
+      </span>
+      <div style={{ flex: 1, display: "flex", height: 12 }}>
+        {segments.map(([stage, value]) => (
+          <div
+            key={stage}
+            style={{ flex: value / total, background: stageColor(stage) }}
+          />
+        ))}
+      </div>
+      <span
+        className="num"
+        style={{
+          font: "600 13px var(--font-body)",
+          width: 46,
+          textAlign: "right",
+          flex: "none",
+        }}
+      >
+        {formatHoursMinutes(session.TotalSleep)}
+      </span>
     </div>
   );
+}
+
+function Section({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ borderTop: "2px solid var(--color-text)", marginTop: 26 }}>
+      <div
+        className="flex items-baseline justify-between gap-5 page-x"
+        style={{ paddingTop: 20, paddingBottom: 16 }}
+      >
+        <h2 style={{ fontSize: 19, fontWeight: 700 }}>{title}</h2>
+        {aside ? (
+          <span
+            style={{
+              font: "400 12px var(--font-body)",
+              color: "var(--color-neutral-600)",
+            }}
+          >
+            {aside}
+          </span>
+        ) : null}
+      </div>
+      <div className="page-x" style={{ paddingBottom: 30 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function HeroCell({
+  label,
+  value,
+  meta,
+}: {
+  label: string;
+  value: string;
+  meta: string;
+}) {
+  return (
+    <div
+      className="page-x"
+      style={{
+        paddingTop: 24,
+        paddingBottom: 22,
+        borderRight: "1px solid var(--color-divider)",
+      }}
+    >
+      <div className="kick">{label}</div>
+      <div
+        className="num"
+        style={{
+          font: "800 44px/1 var(--font-heading)",
+          letterSpacing: "-0.035em",
+          marginTop: 14,
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          font: "400 12px var(--font-body)",
+          color: "var(--color-neutral-600)",
+          marginTop: 12,
+        }}
+      >
+        {meta}
+      </div>
+    </div>
+  );
+}
+
+function MobileStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="page-x"
+      style={{
+        paddingTop: 12,
+        paddingBottom: 12,
+        borderRight: "1px solid var(--color-divider)",
+      }}
+    >
+      <div className="kick">{label}</div>
+      <div
+        className="num"
+        style={{
+          font: "700 22px/1 var(--font-heading)",
+          letterSpacing: "-0.02em",
+          marginTop: 8,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function pctOf(part: number, whole: number): string {
+  if (whole <= 0) return "";
+  return `${((part / whole) * 100).toFixed(0)}% of sleep`;
+}
+
+function stagesForSession(
+  stages: SleepStage[],
+  session: SleepSession,
+): SleepStage[] {
+  const from = new Date(session.SleepStart).getTime();
+  const to = new Date(session.SleepEnd).getTime();
+  return stages.filter((s) => {
+    const t = new Date(s.StartTime).getTime();
+    return t >= from && t < to;
+  });
+}
+
+function stageTotals(stages: SleepStage[]): StageTotals {
+  const totals: StageTotals = { Deep: 0, Core: 0, REM: 0, Awake: 0 };
+  for (const s of stages) {
+    if (s.Stage in totals) {
+      totals[s.Stage as keyof StageTotals] += s.DurationHr;
+    }
+  }
+  return totals;
 }

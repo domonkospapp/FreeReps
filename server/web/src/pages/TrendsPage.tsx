@@ -1,212 +1,474 @@
-import { useQueries } from "@tanstack/react-query";
-import { useState } from "react";
-import { fetchTimeSeries, fetchMetricStats } from "../api";
-import TimeRangeSelector from "../components/TimeRangeSelector";
-import TrendsChart, { type SeriesData } from "../components/trends/TrendsChart";
-import TrendSummaryCards from "../components/trends/TrendSummaryCards";
-import { useAvailableMetrics } from "../hooks/useMetrics";
-import { daysFromRange, formatDateLabel, type TimeRange } from "../utils/timeRange";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { fetchFrontPage, type FrontPageMetric } from "../api";
+import PageHeader from "../components/PageHeader";
+import RangeControl from "../components/RangeControl";
+import { useIsDesktop } from "../hooks/useMediaQuery";
+import { displayValue } from "../components/dashboard/metricDisplay";
+import { formatDayMonth, MINUS } from "../utils/format";
+import { directionOf } from "../utils/metricDirection";
+import { fitTrend, VERDICT_COLOR, type Fit, type Verdict } from "../utils/trend";
+import { queryMessage, queryState } from "../utils/queryState";
 
-const COLORS = ["#22d3ee", "#a78bfa", "#fb923c", "#4ade80", "#f472b6"];
-const MAX_SELECTED = 5;
-const RANGE_OPTIONS: TimeRange[] = ["30d", "90d", "1y"];
+const RANGES = ["30d", "90d", "6m", "1y"] as const;
+type Range = (typeof RANGES)[number];
+
+const RANGE_DAYS: Record<Range, number> = {
+  "30d": 30,
+  "90d": 90,
+  "6m": 182,
+  "1y": 365,
+};
+
+const FLAT_RULE =
+  "Direction is the sign of the least-squares slope over the window. A metric counts as flat when the fitted change stays inside one standard deviation.";
+
+interface TrendItem {
+  metric: FrontPageMetric;
+  fit: Fit;
+}
 
 export default function TrendsPage() {
-  const { visibleGroups: METRIC_GROUPS, lookup } = useAvailableMetrics();
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([
-    "heart_rate_variability",
-    "resting_heart_rate",
-  ]);
-  const [timeRange, setTimeRange] = useState<TimeRange>("90d");
-  const [offset, setOffset] = useState(0);
-  const [aggregation, setAggregation] = useState<"daily" | "weekly">("weekly");
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const isDesktop = useIsDesktop();
+  const [params, setParams] = useSearchParams();
+  const range = (params.get("range") as Range) ?? "90d";
 
-  const days = daysFromRange(timeRange);
-  const endDate = new Date(Date.now() - offset * days * 86400000);
-  const startDate = new Date(endDate.getTime() - days * 86400000);
-  const end = endDate.toISOString().split("T")[0];
-  const start = startDate.toISOString().split("T")[0];
-
-  // Previous period for % change comparison
-  const prevEndDate = new Date(startDate.getTime());
-  const prevStartDate = new Date(prevEndDate.getTime() - days * 86400000);
-  const prevEnd = prevEndDate.toISOString().split("T")[0];
-  const prevStart = prevStartDate.toISOString().split("T")[0];
-
-  // Parallel data fetches
-  const tsQueries = useQueries({
-    queries: selectedMetrics.map((metric) => ({
-      queryKey: ["timeseries", metric, start, end, aggregation],
-      queryFn: () => fetchTimeSeries(metric, start, end, aggregation),
-    })),
+  // The same payload the dashboard uses: one request, and the fit is computed
+  // on exactly the series the chart draws.
+  const query = useQuery({
+    queryKey: ["front-page", range],
+    queryFn: () => fetchFrontPage(range),
+    staleTime: 60_000,
   });
+  const state = queryState(query);
+  const message = queryMessage(state, query.error);
 
-  const statsQueries = useQueries({
-    queries: selectedMetrics.map((metric) => ({
-      queryKey: ["metricStats", metric, start, end],
-      queryFn: () => fetchMetricStats(metric, start, end),
-    })),
-  });
+  const items = useMemo<TrendItem[]>(() => {
+    const metrics = query.data?.metrics ?? [];
+    return metrics
+      .map((metric) => {
+        const fit = fitTrend(metric.series, directionOf(metric.metric_name));
+        return fit ? { metric, fit } : null;
+      })
+      .filter((i): i is TrendItem => i != null);
+  }, [query.data]);
 
-  const prevStatsQueries = useQueries({
-    queries: selectedMetrics.map((metric) => ({
-      queryKey: ["metricStats", metric, prevStart, prevEnd],
-      queryFn: () => fetchMetricStats(metric, prevStart, prevEnd),
-    })),
-  });
+  const counts = useMemo(() => {
+    const c: Record<Verdict, number> = { improving: 0, flat: 0, declining: 0 };
+    for (const i of items) c[i.fit.verdict]++;
+    return c;
+  }, [items]);
 
-  const isLoading = tsQueries.some((q) => q.isLoading);
+  const setRange = (next: Range) => {
+    const p = new URLSearchParams(params);
+    p.set("range", next);
+    setParams(p, { replace: true });
+  };
 
-  function toggleMetric(value: string) {
-    setSelectedMetrics((prev) => {
-      if (prev.includes(value)) return prev.filter((m) => m !== value);
-      if (prev.length >= MAX_SELECTED) return prev;
-      return [...prev, value];
-    });
-  }
-
-  function handleRangeChange(v: string) {
-    const range = v as TimeRange;
-    setTimeRange(range);
-    setOffset(0);
-    setAggregation(range === "30d" ? "daily" : "weekly");
-  }
-
-  // Build per-metric data used by both chart and summary cards
-  const metricData = selectedMetrics.map((metric, i) => {
-    const meta = lookup.get(metric);
-    const label = meta?.label ?? metric;
-    const unit = meta?.unit ?? "";
-    const multiplier = meta?.multiplier ?? 1;
-    const color = COLORS[i % COLORS.length];
-    const rawPoints = tsQueries[i]?.data ?? [];
-    const points = multiplier !== 1
-      ? rawPoints.map((p: any) => ({ ...p, avg: p.avg != null ? p.avg * multiplier : null, min: p.min != null ? p.min * multiplier : null, max: p.max != null ? p.max * multiplier : null }))
-      : rawPoints;
-    return { metric, label, unit, color, points };
-  });
-
-  const seriesData: SeriesData[] = metricData;
-
-  const summaryMetrics = metricData.map((d, i) => ({
-    ...d,
-    stats: statsQueries[i]?.data ?? null,
-    prevStats: prevStatsQueries[i]?.data ?? null,
-  }));
-
-  const checkboxes = (
-    <>
-      {METRIC_GROUPS.map((group) => (
-        <div key={group.label} className="space-y-1">
-          <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider px-1">
-            {group.label}
-          </div>
-          {group.metrics.map((m) => {
-            const checked = selectedMetrics.includes(m.value);
-            const disabled = !checked && selectedMetrics.length >= MAX_SELECTED;
-            return (
-              <label
-                key={m.value}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${
-                  checked
-                    ? "text-zinc-100"
-                    : disabled
-                      ? "text-zinc-600 cursor-not-allowed"
-                      : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => toggleMetric(m.value)}
-                  className="accent-cyan-500 rounded"
-                />
-                {m.label}
-              </label>
-            );
-          })}
-        </div>
-      ))}
-    </>
-  );
+  const days = RANGE_DAYS[range];
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86400000);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold text-zinc-100">Trends</h2>
-        <div className="flex items-center gap-2">
-          <TimeRangeSelector
-            value={timeRange}
-            onChange={handleRangeChange}
-            options={RANGE_OPTIONS}
-            onPrev={() => setOffset((o) => o + 1)}
-            onNext={() => setOffset((o) => Math.max(0, o - 1))}
-            canGoNext={offset > 0}
-            dateLabel={formatDateLabel(start, end)}
+    <>
+      <PageHeader
+        kicker="Linear fit over the selected window"
+        title="Trends"
+        actions={
+          <RangeControl
+            options={RANGES}
+            value={range}
+            onChange={setRange}
+            name="trends-range"
+            note={FLAT_RULE}
           />
-          <div className="flex bg-zinc-800 rounded-md text-sm">
-            {(["daily", "weekly"] as const).map((agg) => (
-              <button
-                key={agg}
-                onClick={() => setAggregation(agg)}
-                className={`px-3 py-1.5 rounded-md capitalize transition-colors ${
-                  aggregation === agg
-                    ? "bg-cyan-600 text-white"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {agg}
-              </button>
-            ))}
-          </div>
-        </div>
+        }
+      />
+
+      <div
+        className="page-x"
+        style={{
+          display: isDesktop ? "flex" : "grid",
+          gridTemplateColumns: isDesktop ? undefined : "repeat(3, 1fr)",
+          gap: isDesktop ? 56 : 0,
+          alignItems: isDesktop ? "flex-start" : undefined,
+          borderTop: "2px solid var(--color-text)",
+          borderBottom: "2px solid var(--color-text)",
+          paddingTop: isDesktop ? 20 : 14,
+          paddingBottom: isDesktop ? 20 : 14,
+        }}
+      >
+        <VerdictCount
+          label="Improving"
+          value={counts.improving}
+          color="var(--color-accent)"
+        />
+        <VerdictCount label="Flat" value={counts.flat} />
+        <VerdictCount label="Declining" value={counts.declining} />
+        {isDesktop ? (
+          <p
+            style={{
+              marginLeft: "auto",
+              maxWidth: "46ch",
+              font: "400 12.5px/1.5 var(--font-body)",
+              color: "var(--color-neutral-700)",
+              textAlign: "right",
+            }}
+          >
+            {FLAT_RULE}
+          </p>
+        ) : null}
       </div>
 
-      <div className="flex gap-6">
-        {/* Desktop sidebar */}
-        <div className="hidden lg:block shrink-0 w-48 space-y-3">
-          {checkboxes}
-        </div>
+      {message ? (
+        <p
+          className="page-x"
+          style={{
+            color: "var(--color-neutral-600)",
+            fontSize: 13,
+            paddingTop: 16,
+          }}
+        >
+          {message}
+        </p>
+      ) : items.length === 0 ? (
+        <p
+          className="page-x"
+          style={{
+            color: "var(--color-neutral-600)",
+            fontSize: 13,
+            paddingTop: 16,
+          }}
+        >
+          {state === "loading"
+            ? "Fitting trends…"
+            : "Not enough samples in this window to fit a trend."}
+        </p>
+      ) : isDesktop ? (
+        <SmallMultiples items={items} start={start} end={end} />
+      ) : (
+        <TrendRows items={items} />
+      )}
 
-        <div className="flex-1 min-w-0 space-y-4">
-          {/* Mobile metric selector */}
-          <div className="lg:hidden">
-            <button
-              onClick={() => setMobileOpen(!mobileOpen)}
-              className="w-full flex items-center justify-between bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100"
+      <div
+        className="page-x flex items-center gap-6 flex-wrap"
+        style={{ paddingTop: 18, paddingBottom: 40, marginTop: "auto" }}
+      >
+        <LegendLine color="var(--color-neutral-500)" label="Daily value" />
+        <LegendLine color="var(--color-accent)" label="Fitted trend" />
+        <Link
+          to="/settings?tab=front-page"
+          className="btn btn-ghost"
+          style={{ marginLeft: "auto", fontSize: 12.5 }}
+        >
+          Choose metrics →
+        </Link>
+      </div>
+    </>
+  );
+}
+
+function SmallMultiples({
+  items,
+  start,
+  end,
+}: {
+  items: TrendItem[];
+  start: Date;
+  end: Date;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
+      {items.map(({ metric, fit }, i) => (
+        <div
+          key={metric.metric_name}
+          style={{
+            paddingTop: 22,
+            paddingBottom: 20,
+            /* Cells are 24px inside, but the outer columns align to the page
+               edge like every other strip on the screen. */
+            paddingLeft: i % 5 === 0 ? "var(--page-x)" : 24,
+            paddingRight: i % 5 === 4 ? "var(--page-x)" : 24,
+            borderRight: "1px solid var(--color-divider)",
+            borderBottom: "1px solid var(--color-divider)",
+          }}
+        >
+          <div className="kick">{metric.label || metric.metric_name}</div>
+          <div
+            className="num"
+            style={{
+              font: "800 30px/1 var(--font-heading)",
+              letterSpacing: "-0.03em",
+              marginTop: 10,
+            }}
+          >
+            {displayValue(metric)}
+            <span
+              style={{
+                font: "500 11.5px var(--font-body)",
+                color: "var(--color-neutral-600)",
+                marginLeft: 5,
+              }}
             >
-              <span>
-                {selectedMetrics.length} metric{selectedMetrics.length !== 1 ? "s" : ""} selected
-              </span>
-              <svg
-                className={`w-4 h-4 transition-transform ${mobileOpen ? "rotate-180" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {mobileOpen && (
-              <div className="mt-2 bg-zinc-900 border border-zinc-800 rounded-lg p-3 space-y-3">
-                {checkboxes}
-              </div>
-            )}
+              {metric.unit}
+            </span>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
+              marginTop: 8,
+            }}
+          >
+            <span
+              className="num"
+              style={{
+                font: "700 12.5px var(--font-body)",
+                color: VERDICT_COLOR[fit.verdict],
+              }}
+            >
+              {slopeLabel(fit.slope, metric)}
+            </span>
+            <span
+              style={{
+                font: "400 11.5px var(--font-body)",
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              {fit.verdict}
+            </span>
           </div>
 
-          {/* Chart */}
-          {isLoading ? (
-            <div className="bg-zinc-900 rounded-lg p-6 h-[350px] animate-pulse" />
-          ) : (
-            <TrendsChart seriesData={seriesData} />
-          )}
+          <TrendChart series={metric.series} fit={fit} width={240} height={74} />
 
-          {/* Summary cards */}
-          <TrendSummaryCards metrics={summaryMetrics} />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              font: "400 10px var(--font-body)",
+              color: "var(--color-neutral-600)",
+              marginTop: 4,
+            }}
+          >
+            <span>{formatDayMonth(start)}</span>
+            <span>{formatDayMonth(end)}</span>
+          </div>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/** Below the breakpoint the 5-column grid becomes rows grouped by verdict. */
+function TrendRows({ items }: { items: TrendItem[] }) {
+  const order: Verdict[] = ["improving", "flat", "declining"];
+  return (
+    <div>
+      {order.map((verdict) => {
+        const group = items.filter((i) => i.fit.verdict === verdict);
+        if (group.length === 0) return null;
+        return (
+          <div key={verdict}>
+            <div className="kick row-group" style={{ textTransform: "capitalize" }}>
+              {verdict}
+            </div>
+            {group.map(({ metric, fit }) => (
+              <div key={metric.metric_name} className="row">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      font: "500 13.5px var(--font-body)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {metric.label || metric.metric_name}
+                  </div>
+                  <div
+                    className="num"
+                    style={{
+                      font: "600 11px var(--font-body)",
+                      marginTop: 4,
+                      color: VERDICT_COLOR[fit.verdict],
+                    }}
+                  >
+                    {slopeLabel(fit.slope, metric)}
+                  </div>
+                </div>
+                <TrendChart
+                  series={metric.series}
+                  fit={fit}
+                  width={120}
+                  height={34}
+                  cssWidth={104}
+                />
+                <div
+                  className="num"
+                  style={{
+                    font: "700 15px var(--font-body)",
+                    width: 64,
+                    textAlign: "right",
+                    flex: "none",
+                  }}
+                >
+                  {displayValue(metric)}{" "}
+                  <span
+                    style={{
+                      fontWeight: 400,
+                      fontSize: 10,
+                      color: "var(--color-neutral-600)",
+                    }}
+                  >
+                    {metric.unit}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The daily series plus the fitted line, both scaled to the same extent so the
+ * line sits inside the cloud rather than beside it.
+ */
+function TrendChart({
+  series,
+  fit,
+  width,
+  height,
+  cssWidth = "100%",
+}: {
+  series: (number | null)[];
+  fit: Fit;
+  width: number;
+  height: number;
+  cssWidth?: number | string;
+}) {
+  const present = series.filter((v): v is number => v != null);
+  if (present.length < 2) return null;
+
+  const min = Math.min(...present, fit.startValue, fit.endValue);
+  const max = Math.max(...present, fit.startValue, fit.endValue);
+  const span = max - min || 1;
+  const yFor = (v: number) => height - 2 - ((v - min) / span) * (height - 4);
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      style={{
+        width: cssWidth,
+        height,
+        display: "block",
+        marginTop: 10,
+        flex: "none",
+      }}
+      aria-hidden
+    >
+      <line
+        x1={0}
+        y1={height - 1}
+        x2={width}
+        y2={height - 1}
+        stroke="var(--color-neutral-300)"
+        strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
+      />
+      <polyline
+        points={scalePoints(series, width, min, span, height)}
+        fill="none"
+        stroke="var(--color-neutral-500)"
+        strokeWidth={1.4}
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        x1={0}
+        y1={yFor(fit.startValue)}
+        x2={width}
+        y2={yFor(fit.endValue)}
+        stroke={VERDICT_COLOR[fit.verdict]}
+        strokeWidth={2}
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
+/** Like the sparkline's mapping, but pinned to an extent shared with the fit. */
+function scalePoints(
+  series: (number | null)[],
+  width: number,
+  min: number,
+  span: number,
+  height: number,
+): string {
+  const step = series.length > 1 ? width / (series.length - 1) : 0;
+  return series
+    .map((v, i) =>
+      v == null
+        ? null
+        : `${(i * step).toFixed(1)},${(height - 2 - ((v - min) / span) * (height - 4)).toFixed(1)}`,
+    )
+    .filter((p): p is string => p != null)
+    .join(" ");
+}
+
+function VerdictCount({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color?: string;
+}) {
+  return (
+    <div>
+      <div className="kick">{label}</div>
+      <div
+        className="num"
+        style={{
+          font: "800 34px/1 var(--font-heading)",
+          letterSpacing: "-0.03em",
+          marginTop: 8,
+          color: color ?? "var(--color-text)",
+        }}
+      >
+        {value}
       </div>
     </div>
   );
+}
+
+function LegendLine({ color, label }: { color: string; label: string }) {
+  return (
+    <span
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        font: "500 11.5px var(--font-body)",
+        color: "var(--color-neutral-700)",
+      }}
+    >
+      <span style={{ width: 16, height: 2, background: color }} />
+      {label}
+    </span>
+  );
+}
+
+function slopeLabel(slope: number, metric: FrontPageMetric): string {
+  const perDay = slope * metric.multiplier;
+  const magnitude = Math.abs(perDay);
+  const digits = magnitude >= 1 ? 2 : 3;
+  const sign = perDay < 0 ? MINUS : "+";
+  const unit = metric.unit ? `${metric.unit}/day` : "/day";
+  return `${sign}${magnitude.toFixed(digits)} ${unit}`;
 }

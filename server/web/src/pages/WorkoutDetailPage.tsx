@@ -1,21 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams, Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { fetchWorkoutDetail, type Workout } from "../api";
-import { getWorkoutDisplayName } from "../components/workouts/workoutNames";
+import PageHeader from "../components/PageHeader";
 import HRTimelineChart from "../components/workouts/HRTimelineChart";
 import HRZoneBars from "../components/workouts/HRZoneBars";
 import RouteMap from "../components/workouts/RouteMap";
 import WorkoutSets from "../components/workouts/WorkoutSets";
-
-function formatDuration(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
+import { getWorkoutDisplayName } from "../components/workouts/workoutNames";
+import { useIsDesktop } from "../hooks/useMediaQuery";
+import { formatDuration, formatNumber } from "../utils/format";
 
 export default function WorkoutDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const isDesktop = useIsDesktop();
   const location = useLocation();
   const routeWorkout = (location.state as { workout?: Workout } | null)?.workout;
   // Sessions that live only in workout_sets have no row in the workouts table,
@@ -29,136 +26,153 @@ export default function WorkoutDetailPage() {
     enabled: !!id && !isSynthetic,
   });
 
-  // For synthetic workouts, use the route state directly.
   const w = isSynthetic ? routeWorkout! : data;
 
   if (!isSynthetic && isLoading) {
     return (
-      <div className="space-y-4">
-        <div className="h-8 w-64 bg-zinc-900 rounded animate-pulse" />
-        <div className="bg-zinc-900 rounded-lg p-4 animate-pulse h-72" />
+      <div className="page-x" style={{ paddingTop: 22 }}>
+        <span className="skel" style={{ width: 220, height: 34 }} />
       </div>
     );
   }
 
   if (!w || (!isSynthetic && error)) {
     return (
-      <div className="text-zinc-500 text-sm p-4 bg-zinc-900 rounded-lg">
-        Workout not found.
-      </div>
+      <>
+        <PageHeader kicker="Workout" title="Not found" />
+        <p
+          className="page-x"
+          style={{ color: "var(--color-neutral-600)", fontSize: 13 }}
+        >
+          This workout is no longer in the database.
+        </p>
+      </>
     );
   }
 
   const hasHR = !isSynthetic && data?.HeartRateData && data.HeartRateData.length > 0;
   const hasRoute = !isSynthetic && data?.RouteData && data.RouteData.length > 0;
 
+  const stats: { label: string; value: string; unit?: string }[] = [
+    { label: "Duration", value: formatDuration(w.DurationSec) },
+  ];
+  if (w.ActiveEnergyBurned != null) {
+    stats.push({
+      label: "Active energy",
+      value: formatNumber(w.ActiveEnergyBurned),
+      unit: "kcal",
+    });
+  }
+  if (w.AvgHeartRate != null) {
+    stats.push({
+      label: "Avg HR",
+      value: formatNumber(w.AvgHeartRate),
+      unit: "bpm",
+    });
+  }
+  if (w.MaxHeartRate != null) {
+    stats.push({
+      label: "Max HR",
+      value: formatNumber(w.MaxHeartRate),
+      unit: "bpm",
+    });
+  }
+  if (w.Distance != null && w.Distance > 0) {
+    stats.push({
+      label: "Distance",
+      value: formatNumber(w.Distance),
+      unit: w.DistanceUnits,
+    });
+  }
+  if (w.ElevationUp != null && w.ElevationUp > 0) {
+    stats.push({
+      label: "Elevation",
+      value: formatNumber(w.ElevationUp),
+      unit: "m",
+    });
+  }
+
   return (
-    <div className="space-y-6">
-      <div>
-        <Link
-          to="/workouts"
-          className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          &larr; Back to Workouts
-        </Link>
-      </div>
-
-      <div>
-        <h2 className="text-xl font-semibold text-zinc-100">{getWorkoutDisplayName(w)}</h2>
-        <div className="text-sm text-zinc-500 mt-1">
-          {new Date(w.StartTime).toLocaleDateString("de-DE", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          })}
-        </div>
-      </div>
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-        <StatCard label="Duration" value={formatDuration(w.DurationSec)} />
-        {w.ActiveEnergyBurned != null && (
-          <StatCard
-            label="Active Cal"
-            value={`${Math.round(w.ActiveEnergyBurned)}`}
-            unit="kcal"
-          />
-        )}
-        {w.AvgHeartRate != null && (
-          <StatCard
-            label="Avg HR"
-            value={`${Math.round(w.AvgHeartRate)}`}
-            unit="bpm"
-          />
-        )}
-        {w.MaxHeartRate != null && (
-          <StatCard
-            label="Max HR"
-            value={`${Math.round(w.MaxHeartRate)}`}
-            unit="bpm"
-          />
-        )}
-        {w.Distance != null && w.Distance > 0 && (
-          <StatCard
-            label="Distance"
-            value={w.Distance.toFixed(2)}
-            unit={w.DistanceUnits}
-          />
-        )}
-        {w.ElevationUp != null && w.ElevationUp > 0 && (
-          <StatCard
-            label="Elev. Gain"
-            value={`${Math.round(w.ElevationUp)}`}
-            unit="m"
-          />
-        )}
-      </div>
-
-      {/* Workout Sets (Alpha Progression data) */}
-      <WorkoutSets
-        workoutId={id!}
-        workoutName={w.Name}
-        alphaSessionName={w.alpha_session_name}
-        workoutStart={isSynthetic ? w.StartTime : undefined}
-        workoutEnd={isSynthetic ? w.EndTime : undefined}
+    <>
+      <PageHeader
+        kicker={new Date(w.StartTime).toLocaleDateString("en-GB", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        })}
+        title={getWorkoutDisplayName(w)}
+        actions={
+          <Link to="/workouts" className="btn btn-secondary" style={{ fontSize: 12 }}>
+            ← Workouts
+          </Link>
+        }
       />
 
-      {/* HR Timeline */}
-      {hasHR && <HRTimelineChart hrData={data!.HeartRateData!} />}
-
-      {/* HR Zones */}
-      {hasHR && <HRZoneBars hrData={data!.HeartRateData!} />}
-
-      {/* Route Map — hidden for indoor or zero-distance workouts */}
-      {hasRoute && !w.IsIndoor && (w.Distance ?? 0) > 0.1 && (
-        <RouteMap route={data!.RouteData!} />
-      )}
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  unit,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-}) {
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <div className="text-xs text-zinc-500 mb-1">{label}</div>
-      <div className="text-xl font-semibold text-zinc-100 tabular-nums">
-        {value}
-        {unit && (
-          <span className="text-sm text-zinc-500 ml-1">{unit}</span>
-        )}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${isDesktop ? Math.min(stats.length, 6) : 3}, 1fr)`,
+          borderTop: "2px solid var(--color-text)",
+          borderBottom: "2px solid var(--color-text)",
+        }}
+      >
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            className="page-x"
+            style={{
+              paddingTop: isDesktop ? 24 : 14,
+              paddingBottom: isDesktop ? 22 : 14,
+              borderRight: "1px solid var(--color-divider)",
+            }}
+          >
+            <div className="kick">{s.label}</div>
+            <div
+              className="num"
+              style={{
+                font: `800 ${isDesktop ? 44 : 26}px/1 var(--font-heading)`,
+                letterSpacing: "-0.035em",
+                marginTop: isDesktop ? 14 : 8,
+              }}
+            >
+              {s.value}
+              {s.unit ? (
+                <span
+                  style={{
+                    font: `500 ${isDesktop ? 14 : 11}px var(--font-body)`,
+                    color: "var(--color-neutral-600)",
+                    marginLeft: 5,
+                  }}
+                >
+                  {s.unit}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+
+      <div className="page-x" style={{ paddingTop: 26, paddingBottom: 40 }}>
+        <WorkoutSets
+          workoutId={id!}
+          workoutName={w.Name}
+          alphaSessionName={w.alpha_session_name}
+          workoutStart={isSynthetic ? w.StartTime : undefined}
+          workoutEnd={isSynthetic ? w.EndTime : undefined}
+        />
+
+        {hasHR ? <HRTimelineChart hrData={data!.HeartRateData!} /> : null}
+        {hasHR ? <HRZoneBars hrData={data!.HeartRateData!} /> : null}
+
+        {/* Hidden for indoor or zero-distance workouts: there is no track. */}
+        {hasRoute && !w.IsIndoor && (w.Distance ?? 0) > 0.1 ? (
+          <RouteMap route={data!.RouteData!} />
+        ) : null}
+      </div>
+    </>
   );
 }

@@ -1,30 +1,39 @@
 import { useMemo } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { WorkoutHR } from "../../api";
+import type { WorkoutHR } from "../../api";
 import AutoSizeUplot from "../AutoSizeUplot";
-
-// HR Zone boundaries (bpm) and colors
-const ZONES = [
-  { name: "Z1", max: 120, color: "rgba(34,211,238,0.08)" }, // cyan
-  { name: "Z2", max: 140, color: "rgba(74,222,128,0.08)" }, // green
-  { name: "Z3", max: 155, color: "rgba(250,204,21,0.08)" }, // yellow
-  { name: "Z4", max: 170, color: "rgba(251,146,60,0.08)" }, // orange
-  { name: "Z5", max: 220, color: "rgba(248,113,113,0.08)" }, // red
-];
+import { useTheme } from "../../theme";
+import { ZONE_BOUNDS } from "../../utils/stageColors";
+import { tokenColor, tokenColorAlpha } from "../../utils/tokenColor";
 
 interface Props {
   hrData: WorkoutHR[];
+  /** Falls back to the session's own peak when the user's maximum is unknown. */
+  maxHR?: number;
 }
 
-export default function HRTimelineChart({ hrData }: Props) {
+export default function HRTimelineChart({ hrData, maxHR }: Props) {
+  // The theme decides what the resolved token values are, so the chart is
+  // rebuilt when it changes.
+  const { theme } = useTheme();
+
   const { opts, plotData } = useMemo(() => {
     if (!hrData || hrData.length === 0) return { opts: null, plotData: null };
 
-    const times = hrData.map((p) =>
-      Math.floor(new Date(p.Time).getTime() / 1000)
-    );
+    const times = hrData.map((p) => Math.floor(new Date(p.Time).getTime() / 1000));
     const bpms = hrData.map((p) => p.AvgBPM ?? p.MaxBPM ?? p.MinBPM ?? null);
+
+    const peak = Math.max(
+      ...bpms.map((b) => b ?? 0),
+      maxHR ?? 0,
+    );
+    const edges = ZONE_BOUNDS.map((f) => f * peak);
+
+    const axis = tokenColor("--color-neutral-600", "#7d7979");
+    const grid = tokenColor("--color-neutral-300", "#d7d3d3");
+    const accent = tokenColor("--color-accent", "#ec3013");
+    const zoneTint = tokenColorAlpha("--color-accent", 0.07);
 
     const opts: uPlot.Options = {
       width: 0,
@@ -32,17 +41,17 @@ export default function HRTimelineChart({ hrData }: Props) {
       series: [
         {},
         {
-          label: "HR (bpm)",
-          stroke: "#ef4444",
+          label: "bpm",
+          stroke: accent,
           width: 1.5,
-          fill: "rgba(239,68,68,0.06)",
         },
       ],
       axes: [
         {
-          stroke: "#52525b",
-          grid: { stroke: "#27272a", width: 1 },
-          ticks: { stroke: "#27272a" },
+          stroke: axis,
+          grid: { stroke: grid, width: 1 },
+          ticks: { stroke: grid },
+          font: "11px Archivo Variable, Archivo, system-ui, sans-serif",
           values: (_u: uPlot, vals: number[]) =>
             vals.map((v) => {
               const d = new Date(v * 1000);
@@ -50,39 +59,27 @@ export default function HRTimelineChart({ hrData }: Props) {
             }),
         },
         {
-          stroke: "#52525b",
-          grid: { stroke: "#27272a", width: 1 },
-          ticks: { stroke: "#27272a" },
-          label: "bpm",
-          labelSize: 14,
+          stroke: axis,
+          grid: { stroke: grid, width: 1 },
+          ticks: { stroke: grid },
+          font: "11px Archivo Variable, Archivo, system-ui, sans-serif",
         },
       ],
       scales: { x: { time: false } },
       cursor: { drag: { x: true, y: false } },
       hooks: {
         draw: [
+          // Tint the top zone only. Banding all five in one accent would read
+          // as a gradient rather than a threshold.
           (u: uPlot) => {
-            const ctx = u.ctx;
             const yScale = u.scales.y;
-            if (!yScale.min || !yScale.max) return;
-
-            const left = u.bbox.left;
-            const width = u.bbox.width;
-            let prevMax = yScale.min;
-
-            for (const zone of ZONES) {
-              const zoneTop = Math.min(zone.max, yScale.max);
-              const zoneBottom = Math.max(prevMax, yScale.min);
-              if (zoneBottom >= yScale.max || zoneTop <= yScale.min) {
-                prevMax = zone.max;
-                continue;
-              }
-              const top = u.valToPos(zoneTop, "y", true);
-              const bottom = u.valToPos(zoneBottom, "y", true);
-              ctx.fillStyle = zone.color;
-              ctx.fillRect(left, top, width, bottom - top);
-              prevMax = zone.max;
-            }
+            if (yScale.min == null || yScale.max == null) return;
+            const from = edges[edges.length - 1];
+            if (from >= yScale.max) return;
+            const top = u.valToPos(yScale.max, "y", true);
+            const bottom = u.valToPos(Math.max(from, yScale.min), "y", true);
+            u.ctx.fillStyle = zoneTint;
+            u.ctx.fillRect(u.bbox.left, top, u.bbox.width, bottom - top);
           },
         ],
       },
@@ -92,22 +89,29 @@ export default function HRTimelineChart({ hrData }: Props) {
       opts,
       plotData: [new Float64Array(times), bpms] as uPlot.AlignedData,
     };
-  }, [hrData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hrData, maxHR, theme]);
 
   if (!opts || !plotData) {
     return (
-      <div className="bg-zinc-900 rounded-lg p-6 text-zinc-500 text-sm">
+      <p style={{ color: "var(--color-neutral-600)", fontSize: 13 }}>
         No heart rate data for this workout.
-      </div>
+      </p>
     );
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-zinc-400 mb-3">
-        Heart Rate Timeline
-      </h3>
-      <AutoSizeUplot opts={opts} data={plotData} />
+    <div style={{ marginTop: 30 }}>
+      <h2 style={{ fontSize: 19, fontWeight: 700 }}>Heart rate</h2>
+      <div
+        style={{
+          borderTop: "2px solid var(--color-text)",
+          marginTop: 12,
+          paddingTop: 12,
+        }}
+      >
+        <AutoSizeUplot opts={opts} data={plotData} />
+      </div>
     </div>
   );
 }

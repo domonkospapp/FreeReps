@@ -1,0 +1,122 @@
+import type { FrontPageMetric } from "../../api";
+import Sparkline from "../Sparkline";
+import { deltaColor } from "../../utils/metricDirection";
+import { formatTimeAgo } from "../../utils/format";
+import { displayDelta, displayValue, type MetricGroupSection } from "./metricDisplay";
+
+interface Props {
+  groups: MetricGroupSection[];
+  loading: boolean;
+}
+
+/**
+ * What the metrics table becomes below 768px: identity left, a short sparkline
+ * in the middle, value and delta right. The sparkline stays because it is
+ * inline SVG and costs nothing.
+ */
+export default function MetricRows({ groups, loading }: Props) {
+  if (loading && groups.length === 0) {
+    return (
+      <div style={{ borderTop: "2px solid var(--color-text)" }}>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="row">
+            <div className="flex-1">
+              <span className="skel" style={{ width: 120, height: 14 }} />
+            </div>
+            <span className="skel" style={{ width: 60, height: 14 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <p
+        className="page-x"
+        style={{ color: "var(--color-neutral-600)", fontSize: 13 }}
+      >
+        No metrics selected. Pick which metrics the list shows in Settings.
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ borderTop: "2px solid var(--color-text)" }}>
+      {groups.map((group) => (
+        <div key={group.category}>
+          <div className="kick row-group">{group.label}</div>
+          {group.metrics.map((m) => (
+            <MetricRow key={m.metric_name} metric={m} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetricRow({ metric: m }: { metric: FrontPageMetric }) {
+  const meta = [m.source, m.time ? formatTimeAgo(m.time) : null]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="row">
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            font: "500 14px var(--font-body)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {m.label || m.metric_name}
+        </div>
+        <div
+          style={{
+            font: "400 11px var(--font-body)",
+            color: "var(--color-neutral-600)",
+            marginTop: 3,
+          }}
+        >
+          {meta || "no readings"}
+        </div>
+      </div>
+
+      <Sparkline
+        values={m.series}
+        width={90}
+        height={20}
+        cssWidth={72}
+        stroke="var(--color-neutral-500)"
+        strokeWidth={1.4}
+      />
+
+      <div style={{ textAlign: "right", flex: "none", width: 82 }}>
+        <div className="num" style={{ font: "700 15px var(--font-body)" }}>
+          {displayValue(m)}{" "}
+          <span
+            style={{
+              fontWeight: 400,
+              fontSize: 11,
+              color: "var(--color-neutral-600)",
+            }}
+          >
+            {m.unit}
+          </span>
+        </div>
+        <div
+          className="num"
+          style={{
+            font: "600 11px var(--font-body)",
+            marginTop: 3,
+            color: deltaColor(m.metric_name, m.delta_7d),
+          }}
+        >
+          {displayDelta(m)}
+        </div>
+      </div>
+    </div>
+  );
+}

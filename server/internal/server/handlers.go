@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/claude/freereps/internal/ingest"
 	"github.com/claude/freereps/internal/models"
-	"github.com/claude/freereps/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -24,55 +22,6 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
-// handleDashboardInit returns available metrics, latest metrics, and daily sums
-// in a single response. The three database queries run concurrently to minimize
-// latency compared to three separate HTTP requests.
-func (s *Server) handleDashboardInit(w http.ResponseWriter, r *http.Request) {
-	uid, ok := mustUserID(w, r)
-	if !ok {
-		return
-	}
-
-	ctx := r.Context()
-	var (
-		available []storage.AllowedMetric
-		latest    []models.HealthMetricRow
-		sums      []storage.DailySum
-		errAvail  error
-		errLatest error
-		errSums   error
-		wg        sync.WaitGroup
-	)
-
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		available, errAvail = s.db.GetAvailableMetrics(ctx, uid)
-	}()
-	go func() {
-		defer wg.Done()
-		latest, errLatest = s.db.GetLatestMetrics(ctx, uid)
-	}()
-	go func() {
-		defer wg.Done()
-		sums, errSums = s.db.GetDailySums(ctx, uid, cumulativeMetrics)
-	}()
-	wg.Wait()
-
-	for _, err := range []error{errAvail, errLatest, errSums} {
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-	}
-
-	w.Header().Set("Cache-Control", "private, max-age=30")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"available_metrics": available,
-		"latest":            latest,
-		"daily_sums":        sums,
-	})
-}
 
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	var payload models.HealthPayload
@@ -211,44 +160,6 @@ func (s *Server) handleUnifiedImport(w http.ResponseWriter, r *http.Request) {
 			"supported": []string{"alpha_progression_csv"},
 		})
 	}
-}
-
-// cumulativeMetrics are metrics that should show daily totals instead of latest value.
-var cumulativeMetrics = []string{
-	"active_energy", "basal_energy_burned", "apple_exercise_time",
-	"step_count", "distance_walking_running", "distance_cycling",
-	"distance_swimming", "distance_wheelchair", "flights_climbed",
-	"apple_move_time", "apple_stand_time", "push_count",
-	"swimming_stroke_count", "distance_downhill_snow_sports",
-	storage.TrainingTonnageMetric,
-}
-
-func (s *Server) handleLatestMetrics(w http.ResponseWriter, r *http.Request) {
-	uid, ok := mustUserID(w, r)
-	if !ok {
-		return
-	}
-	rows, err := s.db.GetLatestMetrics(r.Context(), uid)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Get daily sums for cumulative metrics
-	sums, err := s.db.GetDailySums(r.Context(), uid, cumulativeMetrics)
-	if err != nil {
-		s.log.Error("daily sums error", "error", err)
-		// Non-fatal: continue with latest values
-		writeJSON(w, http.StatusOK, rows)
-		return
-	}
-
-	// Build response with daily_sums field
-	w.Header().Set("Cache-Control", "private, max-age=60")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"latest":     rows,
-		"daily_sums": sums,
-	})
 }
 
 func (s *Server) handleQueryMetrics(w http.ResponseWriter, r *http.Request) {
