@@ -43,7 +43,7 @@ func TestPostTokenRequestShape(t *testing.T) {
 		if got := r.FormValue("client_secret"); got != "csecret" {
 			t.Errorf("client_secret = %q, want csecret", got)
 		}
-		fmt.Fprint(w, `{"status":0,"body":{"userid":"42","access_token":"access-tok",
+		_, _ = fmt.Fprint(w, `{"status":0,"body":{"userid":"42","access_token":"access-tok",
 			"refresh_token":"refresh-tok","token_type":"Bearer","expires_in":10800}}`)
 	}))
 	defer srv.Close()
@@ -72,7 +72,7 @@ func TestPostTokenRequestShape(t *testing.T) {
 // success would store an empty token pair over a working one.
 func TestPostTokenErrorInBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `{"status":503,"body":{},"error":"Invalid Params: invalid code"}`)
+		_, _ = fmt.Fprint(w, `{"status":503,"body":{},"error":"Invalid Params: invalid code"}`)
 	}))
 	defer srv.Close()
 
@@ -101,7 +101,7 @@ func TestPostTokenErrorInBody(t *testing.T) {
 // leaves the old, still-valid pair in the database.
 func TestPostTokenRejectsEmptyPair(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `{"status":0,"body":{"userid":"42","expires_in":10800}}`)
+		_, _ = fmt.Fprint(w, `{"status":0,"body":{"userid":"42","expires_in":10800}}`)
 	}))
 	defer srv.Close()
 
@@ -122,7 +122,7 @@ func TestPostTokenRefreshSendsRefreshToken(t *testing.T) {
 		if got := r.FormValue("refresh_token"); got != "old-refresh" {
 			t.Errorf("refresh_token = %q, want old-refresh", got)
 		}
-		fmt.Fprint(w, `{"status":0,"body":{"access_token":"new-access",
+		_, _ = fmt.Fprint(w, `{"status":0,"body":{"access_token":"new-access",
 			"refresh_token":"new-refresh","token_type":"Bearer","expires_in":10800}}`)
 	}))
 	defer srv.Close()

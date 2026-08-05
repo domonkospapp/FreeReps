@@ -41,7 +41,7 @@ func TestGetMeasuresRequestParameters(t *testing.T) {
 		if r.PostForm.Has("startdate") {
 			t.Error("startdate sent alongside lastupdate")
 		}
-		fmt.Fprint(w, `{"status":0,"body":{"updatetime":1754380800,"more":false,"measuregrps":[]}}`)
+		_, _ = fmt.Fprint(w, `{"status":0,"body":{"updatetime":1754380800,"more":false,"measuregrps":[]}}`)
 	}))
 	defer srv.Close()
 
@@ -69,7 +69,7 @@ func TestGetMeasuresBackfillWindow(t *testing.T) {
 		if r.PostForm.Get("enddate") == "" {
 			t.Error("enddate missing on a backfill request")
 		}
-		fmt.Fprint(w, `{"status":0,"body":{"updatetime":1,"more":false,"measuregrps":[]}}`)
+		_, _ = fmt.Fprint(w, `{"status":0,"body":{"updatetime":1,"more":false,"measuregrps":[]}}`)
 	}))
 	defer srv.Close()
 
@@ -86,7 +86,7 @@ func TestGetMeasuresBackfillWindow(t *testing.T) {
 func TestGetMeasuresErrorInBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"status":401,"body":null,"error":"Invalid params"}`)
+		_, _ = fmt.Fprint(w, `{"status":401,"body":null,"error":"Invalid params"}`)
 	}))
 	defer srv.Close()
 
@@ -110,7 +110,7 @@ func TestGetMeasuresErrorInBody(t *testing.T) {
 // otherwise be retried with the same dead token on every cycle.
 func TestGetMeasuresRevokedToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `{"status":286,"error":"no user found"}`)
+		_, _ = fmt.Fprint(w, `{"status":286,"error":"no user found"}`)
 	}))
 	defer srv.Close()
 
@@ -133,13 +133,13 @@ func TestGetMeasuresPagination(t *testing.T) {
 			if r.PostForm.Has("offset") {
 				t.Error("offset sent on the first page")
 			}
-			fmt.Fprint(w, `{"status":0,"body":{"updatetime":100,"more":true,"offset":2,
+			_, _ = fmt.Fprint(w, `{"status":0,"body":{"updatetime":100,"more":true,"offset":2,
 				"measuregrps":[{"grpid":1,"date":10,"category":1,"measures":[{"value":70000,"type":1,"unit":-3}]}]}}`)
 		case 2:
 			if got := r.PostForm.Get("offset"); got != "2" {
 				t.Errorf("offset = %q, want 2", got)
 			}
-			fmt.Fprint(w, `{"status":0,"body":{"updatetime":200,"more":false,
+			_, _ = fmt.Fprint(w, `{"status":0,"body":{"updatetime":200,"more":false,
 				"measuregrps":[{"grpid":2,"date":20,"category":1,"measures":[{"value":71000,"type":1,"unit":-3}]}]}}`)
 		default:
 			t.Errorf("unexpected call %d", calls)
@@ -165,7 +165,7 @@ func TestGetMeasuresPagination(t *testing.T) {
 // form and lose the page that was already fetched.
 func TestGetMeasuresNumericMore(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, `{"status":0,"body":{"updatetime":100,"more":0,"offset":0,"measuregrps":[]}}`)
+		_, _ = fmt.Fprint(w, `{"status":0,"body":{"updatetime":100,"more":0,"offset":0,"measuregrps":[]}}`)
 	}))
 	defer srv.Close()
 
