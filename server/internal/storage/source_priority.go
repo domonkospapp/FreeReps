@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // SourcePriorityRule is a per-user, per-category source priority configuration.
@@ -76,6 +77,45 @@ func (db *DB) GetDistinctSources(ctx context.Context, userID int) ([]string, err
 			return nil, fmt.Errorf("scanning source: %w", err)
 		}
 		result = append(result, s)
+	}
+	return result, rows.Err()
+}
+
+// SourceActivity is when a source last wrote a metric, and how many it has
+// written in total.
+type SourceActivity struct {
+	Source   string    `json:"source"`
+	LastSeen time.Time `json:"last_seen"`
+	Rows     int64     `json:"rows"`
+}
+
+// GetSourceActivity reports when each source last delivered data.
+//
+// The settings screen used to derive this from import_logs, but those record
+// job names ("oura_sync") while the priority rules name data sources ("Oura"),
+// so the two never matched and every source read as idle. This answers the
+// question the screen actually asks — when did this source last write —
+// against the rows themselves.
+func (db *DB) GetSourceActivity(ctx context.Context, userID int) ([]SourceActivity, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT source, MAX(time), COUNT(*)
+		 FROM health_metrics
+		 WHERE user_id = $1
+		 GROUP BY source
+		 ORDER BY source`,
+		userID)
+	if err != nil {
+		return nil, fmt.Errorf("querying source activity: %w", err)
+	}
+	defer rows.Close()
+
+	var result []SourceActivity
+	for rows.Next() {
+		var a SourceActivity
+		if err := rows.Scan(&a.Source, &a.LastSeen, &a.Rows); err != nil {
+			return nil, fmt.Errorf("scanning source activity: %w", err)
+		}
+		result = append(result, a)
 	}
 	return result, rows.Err()
 }

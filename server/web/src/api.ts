@@ -475,10 +475,18 @@ export interface SourcePriorityRule {
   sources: string[];
 }
 
+/** When a source last wrote a metric, and how many it has written. */
+export interface SourceActivity {
+  source: string;
+  last_seen: string;
+  rows: number;
+}
+
 export interface SourcePriorityConfig {
   rules: SourcePriorityRule[];
   sources: string[];
   categories: string[];
+  activity: SourceActivity[] | null;
   default: string[];
 }
 

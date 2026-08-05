@@ -2,11 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
   deleteSourcePriority,
-  fetchImportLogs,
   fetchSourcePriority,
   saveSourcePriority,
 } from "../../api";
-import { formatTimeAgo } from "../../utils/format";
+import { formatNumber, formatTimeAgo } from "../../utils/format";
 import { sourceLabelLong } from "../../utils/sourceLabel";
 import { TabHeader } from "./parts";
 
@@ -23,11 +22,6 @@ export default function SourcesTab() {
     queryKey: ["source-priority"],
     queryFn: fetchSourcePriority,
   });
-  const logs = useQuery({
-    queryKey: ["import-logs", 50],
-    queryFn: () => fetchImportLogs(50),
-  });
-
   const [order, setOrder] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,12 +32,11 @@ export default function SourcesTab() {
     setOrder(rule?.sources ?? config.data.default ?? config.data.sources);
   }, [config.data]);
 
-  const lastSyncBySource = new Map<string, string>();
-  for (const log of logs.data ?? []) {
-    if (log.source && !lastSyncBySource.has(log.source)) {
-      lastSyncBySource.set(log.source, log.created_at);
-    }
-  }
+  // Keyed by the source value itself, so the lookup cannot silently miss the
+  // way the import-log job names did.
+  const activityBySource = new Map(
+    (config.data?.activity ?? []).map((a) => [a.source, a]),
+  );
 
   function move(index: number, direction: -1 | 1) {
     const target = index + direction;
@@ -97,7 +90,7 @@ export default function SourcesTab() {
 
       <div style={{ paddingTop: 4 }}>
         {order.map((src, i) => {
-          const lastSync = lastSyncBySource.get(src);
+          const activity = activityBySource.get(src);
           return (
             <div
               key={src || "(healthkit)"}
@@ -123,25 +116,31 @@ export default function SourcesTab() {
                     marginTop: 2,
                   }}
                 >
-                  {i === 0 ? "Wins on conflict" : `Used when ranks 1–${i} are absent`}
+                  {i === 0
+                    ? "Wins on conflict"
+                    : i === 1
+                      ? "Used when rank 1 has no reading"
+                      : `Used when ranks 1–${i} have no reading`}
                 </div>
               </div>
               <span
-                className={`tag ${lastSync ? "tag-accent" : "tag-neutral"}`}
+                className={`tag ${activity ? "tag-accent" : "tag-neutral"}`}
                 style={{ flex: "none" }}
               >
-                {lastSync ? "Connected" : "Idle"}
+                {activity ? "Delivering" : "No data"}
               </span>
               <span
                 style={{
-                  width: 130,
+                  width: 190,
                   flex: "none",
                   textAlign: "right",
                   font: "400 12px var(--font-body)",
                   color: "var(--color-neutral-600)",
                 }}
               >
-                {lastSync ? formatTimeAgo(lastSync) : "no ingest yet"}
+                {activity
+                  ? `${formatTimeAgo(activity.last_seen)} · ${formatNumber(activity.rows)} rows`
+                  : "nothing stored"}
               </span>
               <span style={{ display: "flex", gap: 4, flex: "none" }}>
                 <button

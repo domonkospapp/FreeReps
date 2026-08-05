@@ -32,10 +32,17 @@ func (s *Server) handleGetSourcePriorities(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	activity, err := s.db.GetSourceActivity(r.Context(), uid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"rules":      rules,
 		"sources":    sources,
 		"categories": categories,
+		"activity":   activity,
 		"default":    s.db.SourcePriority,
 	})
 }
