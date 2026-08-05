@@ -57,6 +57,14 @@ band, gridlines, baseline, two polylines — needs no plotting library.
 **The stated range is p05–p95, not min–max.** One dropped sensor reading would
 widen a min/max range enough to make the number meaningless.
 
+**Distance is normalised to kilometres in one place.** Apple Health reports
+walking and cycling distance in metres, and the summary strip summed the raw
+field under a fixed "km" label — 428 km rendered as 427 955. Every distance on
+screen now passes through `distanceKm`, which converts by the row's own unit.
+The same class of failure as the metric units in
+[`INCIDENTS.md`](INCIDENTS.md), 2026-03-26: a unit that varies per row and a
+label that does not.
+
 **Zone bands derive from the 99.9th percentile heart rate, not the maximum.**
 Verified against the deployed instance, `MAX()` returned 210 bpm from a single
 strap dropout. At that peak the second zone starts at 126, which put whole

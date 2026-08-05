@@ -51,6 +51,40 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
 }
 
+/**
+ * Distance in kilometres, whatever unit the source reported.
+ *
+ * Apple Health writes walking and cycling distance in metres, so summing the
+ * raw field and labelling it "km" turned 428 km into 427 955. Everything on
+ * screen is normalised here rather than at each call site.
+ */
+export function distanceKm(
+  value: number | null | undefined,
+  units: string | null | undefined,
+): number | null {
+  if (value == null) return null;
+  switch ((units ?? "").toLowerCase()) {
+    case "m":
+      return value / 1000;
+    case "mi":
+      return value * 1.609344;
+    case "yd":
+      return value * 0.0009144;
+    default:
+      // km, or an empty unit, which the ingest path only leaves on km values.
+      return value;
+  }
+}
+
+/** "2.63 km", or "—" when the session carries no distance. */
+export function formatDistance(
+  value: number | null | undefined,
+  units: string | null | undefined,
+): string {
+  const km = distanceKm(value, units);
+  return km == null ? "—" : `${formatNumber(km, km < 10 ? 2 : 1)} km`;
+}
+
 /** Clock time as "23:24". */
 export function formatClock(iso: string): string {
   const d = new Date(iso);

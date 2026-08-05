@@ -14,6 +14,8 @@ import {
   formatClock,
   formatDateWithYear,
   formatDuration,
+  formatDistance,
+  distanceKm,
   formatNumber,
   formatShortDate,
 } from "../utils/format";
@@ -160,7 +162,7 @@ export default function WorkoutsPage() {
             />
             <SummaryCell
               label="Distance"
-              value={formatNumber(summary.distance)}
+              value={formatNumber(summary.distance, 1)}
               unit="km"
               meta={`${summary.withDistance} sessions with GPS`}
               isDesktop
@@ -372,18 +374,6 @@ function WorkoutTable({
                   <span style={{ fontWeight: 600 }}>
                     {getWorkoutDisplayName(w)}
                   </span>
-                  {/* Only what the other columns do not already state. */}
-                  {w.alpha_session_name && w.Location ? (
-                    <span
-                      style={{
-                        font: "400 12px var(--font-body)",
-                        color: "var(--color-neutral-600)",
-                        marginLeft: 8,
-                      }}
-                    >
-                      {w.Location.toLowerCase()}
-                    </span>
-                  ) : null}
                 </td>
                 <td
                   className="num"
@@ -426,7 +416,7 @@ function WorkoutTable({
                     color: "var(--color-neutral-700)",
                   }}
                 >
-                  {w.Distance ? `${formatNumber(w.Distance)} ${w.DistanceUnits}` : "—"}
+                  {formatDistance(w.Distance, w.DistanceUnits)}
                 </td>
                 <td style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
                   {sourceLabel(w.Source)}
@@ -628,7 +618,7 @@ function energyKcal(w: Workout): number | null {
 
 /** Only what the title does not already say. */
 function noteFor(w: Workout): string {
-  if (w.Distance) return `${formatNumber(w.Distance)} ${w.DistanceUnits}`;
+  if (w.Distance) return formatDistance(w.Distance, w.DistanceUnits);
   return "";
 }
 
@@ -662,8 +652,9 @@ function summarize(workouts: Workout[]) {
       hrCount++;
     }
     if (w.MaxHeartRate && w.MaxHeartRate > peakHR) peakHR = w.MaxHeartRate;
-    if (w.Distance) {
-      distance += w.Distance;
+    const km = distanceKm(w.Distance, w.DistanceUnits);
+    if (km != null) {
+      distance += km;
       withDistance++;
     }
   }

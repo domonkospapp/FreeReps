@@ -8,7 +8,7 @@ import RouteMap from "../components/workouts/RouteMap";
 import WorkoutSets from "../components/workouts/WorkoutSets";
 import { getWorkoutDisplayName } from "../components/workouts/workoutNames";
 import { useIsDesktop } from "../hooks/useMediaQuery";
-import { formatDuration, formatNumber } from "../utils/format";
+import { distanceKm, formatDistance, formatDuration, formatNumber } from "../utils/format";
 
 export default function WorkoutDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -80,8 +80,8 @@ export default function WorkoutDetailPage() {
   if (w.Distance != null && w.Distance > 0) {
     stats.push({
       label: "Distance",
-      value: formatNumber(w.Distance),
-      unit: w.DistanceUnits,
+      value: formatDistance(w.Distance, w.DistanceUnits).replace(" km", ""),
+      unit: "km",
     });
   }
   if (w.ElevationUp != null && w.ElevationUp > 0) {
@@ -169,7 +169,7 @@ export default function WorkoutDetailPage() {
         {hasHR ? <HRZoneBars hrData={data!.HeartRateData!} /> : null}
 
         {/* Hidden for indoor or zero-distance workouts: there is no track. */}
-        {hasRoute && !w.IsIndoor && (w.Distance ?? 0) > 0.1 ? (
+        {hasRoute && !w.IsIndoor && (distanceKm(w.Distance, w.DistanceUnits) ?? 0) > 0.1 ? (
           <RouteMap route={data!.RouteData!} />
         ) : null}
       </div>
