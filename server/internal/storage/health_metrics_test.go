@@ -113,6 +113,29 @@ func TestLatestMetricsQueryDoesNotWindowTheWholeTable(t *testing.T) {
 	}
 }
 
+// TestLatestMetricsRecentQueryIsBoundedInTime exists because health_metrics is
+// a hypertable: without a lower bound on time, TimescaleDB cannot exclude
+// chunks and each per-metric lookup walks back through all of them. The bound
+// has to sit inside the LATERAL subquery, where the chunk scan happens — not in
+// the outer join.
+func TestLatestMetricsRecentQueryIsBoundedInTime(t *testing.T) {
+	query := latestMetricsForNamesRecentQuery([]string{"Oura", ""})
+
+	lateral := strings.Index(query, "CROSS JOIN LATERAL")
+	closing := strings.Index(query[lateral:], ") l")
+	if lateral < 0 || closing < 0 {
+		t.Fatalf("unexpected query shape:\n%s", query)
+	}
+	inner := query[lateral : lateral+closing]
+
+	if !strings.Contains(inner, "h.time >= $3") {
+		t.Errorf("the lower bound is outside the LATERAL subquery:\n%s", query)
+	}
+	if !strings.Contains(inner, "LIMIT 1") {
+		t.Errorf("expected a LIMIT 1 lookup per metric:\n%s", query)
+	}
+}
+
 // TestDedupCTEMultiMetricRangeFiltersInsideTheCTE exists because the same
 // filter one level out — in the caller's WHERE — makes Postgres number the
 // user's whole history before narrowing to the window, which is why the front

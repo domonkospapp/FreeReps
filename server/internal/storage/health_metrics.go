@@ -187,32 +187,65 @@ func (db *DB) GetLatestMetrics(ctx context.Context, userID int) ([]models.Health
 	return db.latestMetrics(ctx, userID, nil)
 }
 
+// recentLookupDays bounds the first pass of the latest-value lookup.
+//
+// health_metrics is a hypertable, and without a time predicate TimescaleDB
+// cannot exclude chunks — every per-metric lookup walks back through all of
+// them until it finds a row, which costs the same whether the reading is from
+// this morning or two years ago. Nearly every metric has something within this
+// window, so the bounded pass answers almost all of them and the unbounded
+// second pass runs for the few stragglers.
+const recentLookupDays = 120
+
 // GetLatestMetricsFor is GetLatestMetrics restricted to named metrics.
 //
-// Naming them is what makes it fast. Postgres before 18 has no index skip
-// scan, so DISTINCT ON (metric_name) walks every index entry the user has —
-// 4.7 million of them — to return one row per metric. Given the names, it does
-// one bounded lookup each instead. The front page knows the names already,
-// because it just decided which metrics are visible.
+// Two passes: a bounded one that TimescaleDB can satisfy from recent chunks,
+// then an unbounded one for whichever names it did not answer — a metric like
+// body weight, last recorded months ago, still reports its value.
 func (db *DB) GetLatestMetricsFor(ctx context.Context, userID int, names []string) ([]models.HealthMetricRow, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
-	return db.latestMetrics(ctx, userID, names)
+
+	priorities := db.ResolveSourcePriority(ctx, userID, "_default")
+	since := time.Now().AddDate(0, 0, -recentLookupDays)
+
+	recent, err := db.queryLatest(ctx, latestMetricsForNamesRecentQuery(priorities), userID, names, since)
+	if err != nil {
+		return nil, err
+	}
+
+	found := make(map[string]bool, len(recent))
+	for _, row := range recent {
+		found[row.MetricName] = true
+	}
+	var stale []string
+	for _, name := range names {
+		if !found[name] {
+			stale = append(stale, name)
+		}
+	}
+	if len(stale) == 0 {
+		return recent, nil
+	}
+
+	older, err := db.queryLatest(ctx, latestMetricsForNamesQuery(priorities), userID, stale)
+	if err != nil {
+		return nil, err
+	}
+	return append(recent, older...), nil
 }
 
 func (db *DB) latestMetrics(ctx context.Context, userID int, names []string) ([]models.HealthMetricRow, error) {
 	priorities := db.ResolveSourcePriority(ctx, userID, "_default")
-
-	var (
-		rows pgx.Rows
-		err  error
-	)
 	if names == nil {
-		rows, err = db.Pool.Query(ctx, latestMetricsQuery(priorities), userID)
-	} else {
-		rows, err = db.Pool.Query(ctx, latestMetricsForNamesQuery(priorities), userID, names)
+		return db.queryLatest(ctx, latestMetricsQuery(priorities), userID)
 	}
+	return db.queryLatest(ctx, latestMetricsForNamesQuery(priorities), userID, names)
+}
+
+func (db *DB) queryLatest(ctx context.Context, query string, args ...any) ([]models.HealthMetricRow, error) {
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying latest metrics: %w", err)
 	}
@@ -239,6 +272,35 @@ func latestMetricsQuery(priorities []string) string {
 			FROM health_metrics
 			WHERE user_id = $1
 			ORDER BY metric_name, time DESC
+		)
+		SELECT DISTINCT ON (h.metric_name)
+		       h.time, h.user_id, h.metric_name, h.source, h.units,
+		       h.qty, h.min_val, h.avg_val, h.max_val,
+		       h.systolic, h.diastolic, h.source_uuid
+		 FROM newest n
+		 JOIN health_metrics h
+		   ON h.user_id = $1
+		  AND h.metric_name = n.metric_name
+		  AND h.time > n.peak - interval '5 minutes'
+		  AND h.time <= n.peak
+		 ORDER BY h.metric_name, %s, h.time DESC`, sourcePriorityCaseSQL(priorities))
+}
+
+// latestMetricsForNamesRecentQuery is latestMetricsForNamesQuery with a lower
+// time bound, which is what lets TimescaleDB skip old chunks. Metrics with
+// nothing in the window return no row and are retried unbounded.
+func latestMetricsForNamesRecentQuery(priorities []string) string {
+	return fmt.Sprintf(
+		`WITH newest AS (
+			SELECT m.metric_name, l.time AS peak
+			FROM unnest($2::text[]) AS m(metric_name)
+			CROSS JOIN LATERAL (
+				SELECT time FROM health_metrics h
+				WHERE h.user_id = $1 AND h.metric_name = m.metric_name
+				  AND h.time >= $3
+				ORDER BY h.time DESC
+				LIMIT 1
+			) l
 		)
 		SELECT DISTINCT ON (h.metric_name)
 		       h.time, h.user_id, h.metric_name, h.source, h.units,
