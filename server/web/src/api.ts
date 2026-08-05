@@ -110,10 +110,38 @@ export async function fetchFrontPage(
 
 export interface MaxHeartRate {
   bpm: number;
-  /** "configured" when the user set it, "observed" when it was measured. */
-  origin: "configured" | "observed";
-  /** The measured figure, kept even when a configured value overrides it. */
+  /** Where the figure came from; the screen states which. */
+  origin: "configured" | "estimated" | "observed";
+  /** The measured figure, kept whichever origin wins. */
   observed: number;
+  /** The age-based estimate, 0 when no birth date is stored. */
+  estimated: number;
+  /** Completed years, 0 when no birth date is stored. */
+  age: number;
+}
+
+export interface BirthDate {
+  birth_date: string;
+  age: number;
+}
+
+export async function fetchBirthDate(): Promise<BirthDate> {
+  const res = await fetch(`${BASE}/preferences/birth-date`);
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+/** Send an empty string to clear it. */
+export async function saveBirthDate(birthDate: string): Promise<void> {
+  const res = await fetch(`${BASE}/preferences/birth-date`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ birth_date: birthDate }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `${res.status}: ${res.statusText}`);
+  }
 }
 
 export async function fetchMaxHeartRate(): Promise<MaxHeartRate> {

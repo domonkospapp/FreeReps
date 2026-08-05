@@ -21,27 +21,49 @@ type WorkoutZones struct {
 }
 
 // MaxHeartRate carries the figure the zone bands derive from, and where it came
-// from — the screen states the source, because the two differ in kind.
+// from — the screen states the source, because the three differ in kind.
 type MaxHeartRate struct {
 	BPM float64 `json:"bpm"`
-	// "configured" when the user set it, "observed" when it was measured.
+	// "configured" when the user set it, "estimated" when derived from age,
+	// "observed" when taken from the workout history.
 	Origin string `json:"origin"`
-	// The measured figure, kept even when a configured value overrides it, so
-	// the settings screen can offer it as a starting point.
+	// The measured figure, kept whichever origin wins, so the settings screen
+	// can offer it as a starting point.
 	Observed float64 `json:"observed"`
+	// The age-based estimate, 0 when no birth date is stored.
+	Estimated float64 `json:"estimated"`
+	// Completed years, 0 when no birth date is stored.
+	Age int `json:"age"`
 }
 
-// GetMaxHeartRate returns the heart rate the zone bands are computed from,
-// preferring the user's own figure over the measured one. BPM is 0 when
-// neither exists.
+// GetMaxHeartRate returns the heart rate the zone bands are computed from.
+// BPM is 0 when none of the three sources yields a figure.
 //
-// A configured maximum wins because it is a physiological constant, while the
-// measured figure only describes how hard this person has trained so far —
-// letting the bands shift retroactively after one hard session.
+// The order is configured, then age-based estimate, then observed:
+//
+//   - A configured maximum wins because the user knows it, typically from a
+//     test the app never saw.
+//   - The estimate comes next because it approximates a physiological constant,
+//     while the observed figure only describes how hard this person has trained
+//     so far — it shifts every band retroactively after one hard session.
+//   - An observed rate above the estimate overrides it anyway: the formula
+//     carries a 10 to 12 bpm standard deviation, and a rate actually recorded
+//     is evidence against an estimate that sits below it.
 func (db *DB) GetMaxHeartRate(ctx context.Context, userID int) (MaxHeartRate, error) {
 	observed, err := db.observedMaxHeartRate(ctx, userID)
 	if err != nil {
 		return MaxHeartRate{}, err
+	}
+
+	result := MaxHeartRate{Observed: observed}
+
+	birth, hasBirth, err := db.GetBirthDate(ctx, userID)
+	if err != nil {
+		return MaxHeartRate{}, err
+	}
+	if hasBirth {
+		result.Age = AgeYears(birth, time.Now())
+		result.Estimated = EstimatedMaxHeartRate(result.Age)
 	}
 
 	var configured float64
@@ -50,9 +72,17 @@ func (db *DB) GetMaxHeartRate(ctx context.Context, userID int) (MaxHeartRate, er
 		return MaxHeartRate{}, err
 	}
 	if found && configured > 0 {
-		return MaxHeartRate{BPM: configured, Origin: "configured", Observed: observed}, nil
+		result.BPM, result.Origin = configured, "configured"
+		return result, nil
 	}
-	return MaxHeartRate{BPM: observed, Origin: "observed", Observed: observed}, nil
+
+	if result.Estimated > 0 && result.Estimated >= observed {
+		result.BPM, result.Origin = result.Estimated, "estimated"
+		return result, nil
+	}
+
+	result.BPM, result.Origin = observed, "observed"
+	return result, nil
 }
 
 // observedMaxHeartRate is the 99.9th percentile, not the maximum. A single

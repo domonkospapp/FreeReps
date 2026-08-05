@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMe, fetchStats, fetchVersion } from "../../api";
 import { useTheme, type ThemePreference } from "../../theme";
 import { formatNumber } from "../../utils/format";
+import BirthDateRow from "./BirthDateRow";
 import MaxHeartRateRow from "./MaxHeartRateRow";
 import { MONO, Row, TabHeader } from "./parts";
 
@@ -46,6 +47,7 @@ export default function IdentityTab() {
       </Row>
       <Row label="Database">TimescaleDB · {rows}</Row>
 
+      <BirthDateRow />
       <MaxHeartRateRow />
 
       <Row label="Appearance">

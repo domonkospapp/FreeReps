@@ -271,6 +271,67 @@ func (s *Server) handleSaveMaxHeartRate(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+// handleSaveBirthDate stores the date of birth the max heart rate estimate
+// derives from. An empty string clears it.
+func (s *Server) handleSaveBirthDate(w http.ResponseWriter, r *http.Request) {
+	uid, ok := mustUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		BirthDate string `json:"birth_date"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	if body.BirthDate != "" {
+		d, err := time.Parse("2006-01-02", body.BirthDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "expected a date as YYYY-MM-DD",
+			})
+			return
+		}
+		age := storage.AgeYears(d, time.Now())
+		// Outside this range the entry is a typo, and it would feed a nonsense
+		// maximum into every zone bar.
+		if age < 10 || age > 110 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "that date gives an implausible age; send an empty string to clear it",
+			})
+			return
+		}
+	}
+
+	if err := s.db.SetPreference(r.Context(), uid, storage.PrefBirthDate, body.BirthDate); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// handleBirthDate reports the stored date of birth, empty when unset.
+func (s *Server) handleBirthDate(w http.ResponseWriter, r *http.Request) {
+	uid, ok := mustUserID(w, r)
+	if !ok {
+		return
+	}
+	birth, found, err := s.db.GetBirthDate(r.Context(), uid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	resp := map[string]any{"birth_date": "", "age": 0}
+	if found {
+		resp["birth_date"] = birth.Format("2006-01-02")
+		resp["age"] = storage.AgeYears(birth, time.Now())
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleSaveFrontPageHeroes stores the four metrics the dashboard shows as hero
 // numbers.
 func (s *Server) handleSaveFrontPageHeroes(w http.ResponseWriter, r *http.Request) {

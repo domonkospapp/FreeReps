@@ -45,7 +45,6 @@ export default function MaxHeartRateRow() {
   }
 
   const data = query.data;
-  const configured = data?.origin === "configured";
 
   return (
     <Row label="Max heart rate">
@@ -79,7 +78,7 @@ export default function MaxHeartRateRow() {
         >
           {saving ? "Saving…" : "Save"}
         </button>
-        {configured ? (
+        {data?.origin === "configured" ? (
           <button
             type="button"
             className="btn btn-ghost"
@@ -105,23 +104,34 @@ export default function MaxHeartRateRow() {
       >
         {error ? (
           <span style={{ color: "var(--color-accent-700)" }}>{error}</span>
-        ) : data ? (
-          configured ? (
-            <>
-              Zones derive from your own figure. The history measures{" "}
-              <span className="num">{formatNumber(data.observed, 0)}</span> bpm.
-            </>
-          ) : (
-            <>
-              Unset, so zones derive from the highest rate your workouts
-              recorded — currently{" "}
-              <span className="num">{formatNumber(data.observed, 0)}</span> bpm.
-              That figure rises after a hard session and shifts every band with
-              it.
-            </>
-          )
-        ) : (
+        ) : !data ? (
           "Loading…"
+        ) : data.origin === "configured" ? (
+          <>
+            Zones derive from your own figure. The history measures{" "}
+            <span className="num">{formatNumber(data.observed, 0)}</span> bpm
+            {data.estimated > 0 ? (
+              <>
+                , your age estimates{" "}
+                <span className="num">{formatNumber(data.estimated, 0)}</span>
+              </>
+            ) : null}
+            .
+          </>
+        ) : data.origin === "estimated" ? (
+          <>
+            Unset, so zones use the estimate for age {data.age} —{" "}
+            <span className="num">{formatNumber(data.estimated, 0)}</span> bpm,
+            from 220 minus age. That formula varies by about 10 bpm between
+            people, so your own figure is the better one if you know it.
+          </>
+        ) : (
+          <>
+            Unset, so zones derive from the highest rate your workouts recorded
+            — currently <span className="num">{formatNumber(data.observed, 0)}</span>{" "}
+            bpm. That figure rises after a hard session and shifts every band
+            with it. A date of birth above gives a steadier estimate.
+          </>
         )}
       </p>
     </Row>

@@ -152,6 +152,8 @@ func (s *Server) routes() {
 		r.Put("/api/v1/preferences/front-page-heroes", s.handleSaveFrontPageHeroes)
 		r.Get("/api/v1/preferences/max-heart-rate", s.handleMaxHeartRate)
 		r.Put("/api/v1/preferences/max-heart-rate", s.handleSaveMaxHeartRate)
+		r.Get("/api/v1/preferences/birth-date", s.handleBirthDate)
+		r.Put("/api/v1/preferences/birth-date", s.handleSaveBirthDate)
 
 		// Health data endpoints
 		r.Get("/api/v1/ecg", s.handleGetECGRecordings)

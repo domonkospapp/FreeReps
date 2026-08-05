@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -16,6 +17,52 @@ const PrefFrontPageHeroes = "front_page_heroes"
 // PrefMaxHeartRate is the user's own maximum heart rate in bpm, which the
 // training zones derive from. Stored as a JSON number.
 const PrefMaxHeartRate = "max_heart_rate"
+
+// PrefBirthDate is the user's date of birth as "YYYY-MM-DD". Its only use is
+// estimating a maximum heart rate when none is configured; nothing else reads
+// it, and the app asks for no other personal detail.
+const PrefBirthDate = "birth_date"
+
+// GetBirthDate returns the stored date of birth. The second value is false when
+// the user has not set one.
+func (db *DB) GetBirthDate(ctx context.Context, userID int) (time.Time, bool, error) {
+	var raw string
+	found, err := db.GetPreference(ctx, userID, PrefBirthDate, &raw)
+	if err != nil || !found || raw == "" {
+		return time.Time{}, false, err
+	}
+	d, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		// A malformed value costs the estimate, not the request.
+		return time.Time{}, false, nil
+	}
+	return d, true, nil
+}
+
+// AgeYears returns completed years between birth and now.
+//
+// Compares month and day rather than day-of-year: 29 February shifts every
+// later day-of-year by one, which would count a March birthday a year early in
+// every leap year.
+func AgeYears(birth, now time.Time) int {
+	years := now.Year() - birth.Year()
+	// Subtract one when this year's birthday has not come round yet.
+	if now.Month() < birth.Month() ||
+		(now.Month() == birth.Month() && now.Day() < birth.Day()) {
+		years--
+	}
+	return years
+}
+
+// EstimatedMaxHeartRate is the Haskell-Fox estimate, 220 minus age.
+//
+// It is a population average with a standard deviation around 10 to 12 bpm, so
+// it is a starting point rather than a measurement — which is why a figure the
+// user configured always wins, and why a genuinely observed rate above the
+// estimate wins too.
+func EstimatedMaxHeartRate(age int) float64 {
+	return float64(220 - age)
+}
 
 // DefaultFrontPageHeroes is used until the user picks their own. Readiness,
 // sleep, HRV and resting heart rate answer "how am I doing today" without
