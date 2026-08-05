@@ -210,7 +210,7 @@ func (db *DB) GetLatestMetricsFor(ctx context.Context, userID int, names []strin
 	priorities := db.ResolveSourcePriority(ctx, userID, "_default")
 	since := time.Now().AddDate(0, 0, -recentLookupDays)
 
-	recent, err := db.queryLatest(ctx, latestMetricsForNamesRecentQuery(priorities), userID, names, since)
+	recent, err := db.queryLatest(ctx, latestMetricsForNamesRecentQuery(priorities, since), userID, names)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +289,7 @@ func latestMetricsQuery(priorities []string) string {
 // latestMetricsForNamesRecentQuery is latestMetricsForNamesQuery with a lower
 // time bound, which is what lets TimescaleDB skip old chunks. Metrics with
 // nothing in the window return no row and are retried unbounded.
-func latestMetricsForNamesRecentQuery(priorities []string) string {
+func latestMetricsForNamesRecentQuery(priorities []string, since time.Time) string {
 	return fmt.Sprintf(
 		`WITH newest AS (
 			SELECT m.metric_name, l.time AS peak
@@ -297,7 +297,7 @@ func latestMetricsForNamesRecentQuery(priorities []string) string {
 			CROSS JOIN LATERAL (
 				SELECT time FROM health_metrics h
 				WHERE h.user_id = $1 AND h.metric_name = m.metric_name
-				  AND h.time >= $3
+				  AND h.time >= %s
 				ORDER BY h.time DESC
 				LIMIT 1
 			) l
@@ -312,7 +312,8 @@ func latestMetricsForNamesRecentQuery(priorities []string) string {
 		  AND h.metric_name = n.metric_name
 		  AND h.time > n.peak - interval '5 minutes'
 		  AND h.time <= n.peak
-		 ORDER BY h.metric_name, %s, h.time DESC`, sourcePriorityCaseSQL(priorities))
+		 ORDER BY h.metric_name, %s, h.time DESC`,
+		sqlTimestamp(since), sourcePriorityCaseSQL(priorities))
 }
 
 // latestMetricsForNamesQuery is latestMetricsQuery with the metric names given

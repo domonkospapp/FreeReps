@@ -3,6 +3,7 @@ package storage
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestSourcePriorityCaseSQL verifies that the SQL CASE expression correctly
@@ -119,7 +120,8 @@ func TestLatestMetricsQueryDoesNotWindowTheWholeTable(t *testing.T) {
 // has to sit inside the LATERAL subquery, where the chunk scan happens — not in
 // the outer join.
 func TestLatestMetricsRecentQueryIsBoundedInTime(t *testing.T) {
-	query := latestMetricsForNamesRecentQuery([]string{"Oura", ""})
+	since := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
+	query := latestMetricsForNamesRecentQuery([]string{"Oura", ""}, since)
 
 	lateral := strings.Index(query, "CROSS JOIN LATERAL")
 	closing := strings.Index(query[lateral:], ") l")
@@ -128,8 +130,11 @@ func TestLatestMetricsRecentQueryIsBoundedInTime(t *testing.T) {
 	}
 	inner := query[lateral : lateral+closing]
 
-	if !strings.Contains(inner, "h.time >= $3") {
-		t.Errorf("the lower bound is outside the LATERAL subquery:\n%s", query)
+	// A literal, not a parameter: a bind parameter hides the value from the
+	// planner, which then cannot exclude chunks and plans across all 514 of
+	// them — 584ms of planning against 12ms, measured in production.
+	if !strings.Contains(inner, "h.time >= TIMESTAMPTZ '2026-04-07") {
+		t.Errorf("the lower bound is not an inlined literal inside the LATERAL:\n%s", query)
 	}
 	if !strings.Contains(inner, "LIMIT 1") {
 		t.Errorf("expected a LIMIT 1 lookup per metric:\n%s", query)

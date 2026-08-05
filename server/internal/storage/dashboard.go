@@ -48,15 +48,16 @@ func (db *DB) GetDailySeries(ctx context.Context, userID int, metricNames []stri
 	}
 
 	params := make([]string, len(metricNames))
-	args := make([]any, 0, len(metricNames)+3)
+	args := make([]any, 0, len(metricNames)+1)
 	args = append(args, userID)
 	for i, name := range metricNames {
 		params[i] = fmt.Sprintf("$%d", i+2)
 		args = append(args, name)
 	}
-	startParam := fmt.Sprintf("$%d", len(metricNames)+2)
-	endParam := fmt.Sprintf("$%d", len(metricNames)+3)
-	args = append(args, start, end)
+	// Literals, not parameters: the planner has to see the bounds to exclude
+	// chunks while planning. See sqlTimestamp.
+	startParam := sqlTimestamp(start)
+	endParam := sqlTimestamp(end)
 
 	inClause := strings.Join(params, ",")
 	// The set spans categories, so the user's _default priority applies.
