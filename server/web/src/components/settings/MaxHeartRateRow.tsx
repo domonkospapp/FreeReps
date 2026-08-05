@@ -89,7 +89,7 @@ export default function MaxHeartRateRow() {
               commit(0);
             }}
           >
-            Use measured
+            Use automatic
           </button>
         ) : null}
       </div>
@@ -108,14 +108,19 @@ export default function MaxHeartRateRow() {
           "Loading…"
         ) : data.origin === "configured" ? (
           <>
-            Zones derive from your own figure. The history measures{" "}
-            <span className="num">{formatNumber(data.observed, 0)}</span> bpm
-            {data.estimated > 0 ? (
-              <>
-                , your age estimates{" "}
-                <span className="num">{formatNumber(data.estimated, 0)}</span>
-              </>
-            ) : null}
+            Zones derive from your own figure. Without it they would use{" "}
+            <span className="num">
+              {formatNumber(
+                data.estimated > 0 && data.estimated >= data.observed
+                  ? data.estimated
+                  : data.observed,
+                0,
+              )}
+            </span>{" "}
+            bpm
+            {data.estimated > 0 && data.estimated >= data.observed
+              ? ` — the estimate for age ${data.age}`
+              : " — the highest rate your workouts recorded"}
             .
           </>
         ) : data.origin === "estimated" ? (
