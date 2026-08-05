@@ -177,7 +177,11 @@ export default function WorkoutsPage() {
           display: "flex",
           gap: 8,
           paddingTop: isDesktop ? 24 : 14,
-          paddingBottom: isDesktop ? 14 : 14,
+          paddingBottom: 14,
+          /* A real history has more workout types than the design's six, so the
+             row wraps rather than pushing the note off the page. On the phone
+             it stays one non-wrapping scroll row. */
+          flexWrap: isDesktop ? "wrap" : "nowrap",
           overflowX: isDesktop ? undefined : "auto",
           alignItems: "center",
         }}
