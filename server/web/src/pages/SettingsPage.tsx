@@ -7,6 +7,7 @@ import ImportTab from "../components/settings/ImportTab";
 import IngestTab from "../components/settings/IngestTab";
 import OuraTab from "../components/settings/OuraTab";
 import SourcesTab from "../components/settings/SourcesTab";
+import WithingsTab from "../components/settings/WithingsTab";
 import { useIsDesktop } from "../hooks/useMediaQuery";
 
 /* Hevy and Import are absent from the design's five-tab rail, but both drive
@@ -16,6 +17,7 @@ const TABS = [
   { id: "identity", label: "Identity", render: () => <IdentityTab /> },
   { id: "sources", label: "Sources", render: () => <SourcesTab /> },
   { id: "oura", label: "Oura", render: () => <OuraTab /> },
+  { id: "withings", label: "Withings", render: () => <WithingsTab /> },
   { id: "hevy", label: "Hevy", render: () => <HevyTab /> },
   { id: "front-page", label: "Front page", render: () => <FrontPageTab /> },
   { id: "ingest", label: "Ingest", render: () => <IngestTab /> },

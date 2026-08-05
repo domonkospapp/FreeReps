@@ -23,6 +23,7 @@ import (
 	"github.com/claude/freereps/internal/oura"
 	"github.com/claude/freereps/internal/server"
 	"github.com/claude/freereps/internal/storage"
+	"github.com/claude/freereps/internal/withings"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"tailscale.com/tsnet"
 )
@@ -132,6 +133,14 @@ func main() {
 
 	srv.SetHevy(hevySyncer)
 	log.Info("hevy sync started", "interval", cfg.Hevy.SyncInterval)
+
+	// Start Withings sync (always runs; no-ops if no users have authorized)
+	withingsTokenMgr := withings.NewTokenManager(db)
+	withingsSyncer := withings.NewSyncer(withings.NewClient(), withingsTokenMgr, db, cfg.Withings, log)
+	go withingsSyncer.Run(syncCtx)
+
+	srv.SetWithings(withingsTokenMgr, withingsSyncer)
+	log.Info("withings sync started", "interval", cfg.Withings.SyncInterval)
 
 	// Mount MCP SSE server
 	mcpSrv := freerepsmcp.New(db, Version, log)

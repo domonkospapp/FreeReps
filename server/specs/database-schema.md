@@ -251,6 +251,48 @@ CREATE TABLE hevy_sync_state (
 `last_event_at` is the `since` parameter of the next event fetch, minus a one
 hour overlap.
 
+### `withings_tokens` (Regular)
+
+```sql
+CREATE TABLE withings_tokens (
+    user_id          INTEGER     NOT NULL PRIMARY KEY,
+    client_id        TEXT        NOT NULL DEFAULT '',
+    client_secret    TEXT        NOT NULL DEFAULT '',
+    access_token     TEXT        NOT NULL DEFAULT '',
+    refresh_token    TEXT        NOT NULL DEFAULT '',
+    token_type       TEXT        NOT NULL DEFAULT 'Bearer',
+    expires_at       TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01',
+    withings_user_id TEXT        NOT NULL DEFAULT '',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Every column defaults, so a row can hold credentials before authorization has
+happened — that is the state between saving the client ID and completing the
+consent flow.
+
+`refresh_token` rotates on every refresh and the previous value stops working
+within hours (`withings-api.md`). Writes go through an upsert, never a bare
+`UPDATE`, so a missing row cannot turn the write into a silent no-op.
+
+### `withings_sync_state` (Regular)
+
+```sql
+CREATE TABLE withings_sync_state (
+    user_id     INTEGER NOT NULL,
+    data_type   TEXT    NOT NULL,
+    last_update BIGINT  NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, data_type)
+);
+```
+
+`last_update` is the `updatetime` value the previous `getmeas` response reported,
+passed back as `lastupdate`. It is Unix seconds rather than a date because the
+API filters to the second, and it comes from the server rather than the local
+clock so the delta window does not depend on clock skew.
+
 ### `metric_allowlist` (Regular)
 
 Controls which metrics are accepted during ingest.

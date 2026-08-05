@@ -584,6 +584,54 @@ export async function disconnectOura(): Promise<void> {
   if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
 }
 
+// --- Withings Integration ---
+
+export interface WithingsStatus {
+  configured: boolean;
+  connected: boolean;
+  client_id?: string;
+  expires_at?: string;
+  /** Job name -> RFC3339 timestamp the next delta fetch resumes from. */
+  sync_states?: Record<string, string>;
+}
+
+export async function fetchWithingsStatus(): Promise<WithingsStatus> {
+  const res = await fetch(`${BASE}/withings/status`);
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+export async function saveWithingsCredentials(
+  clientId: string,
+  clientSecret: string,
+): Promise<void> {
+  const res = await fetch(`${BASE}/withings/credentials`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `${res.status}: ${res.statusText}`);
+  }
+}
+
+export async function authorizeWithings(): Promise<{ authorize_url: string }> {
+  const res = await fetch(`${BASE}/withings/authorize`, { method: "POST" });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+export async function triggerWithingsSync(): Promise<void> {
+  const res = await fetch(`${BASE}/withings/sync`, { method: "POST" });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+}
+
+export async function disconnectWithings(): Promise<void> {
+  const res = await fetch(`${BASE}/withings/disconnect`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+}
+
 // --- Hevy Integration ---
 
 export interface HevyStatus {

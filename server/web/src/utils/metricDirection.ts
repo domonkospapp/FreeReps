@@ -16,6 +16,9 @@ const DIRECTION: Record<string, Direction> = {
   body_temperature: "neutral",
   blood_pressure_systolic: "lower",
   blood_pressure_diastolic: "lower",
+  // The pulse a blood pressure cuff records with each reading. Kept apart from
+  // heart_rate, which is a continuous measurement from a different device.
+  blood_pressure_heart_rate: "lower",
 
   // Fitness
   vo2_max: "higher",
@@ -30,7 +33,13 @@ const DIRECTION: Record<string, Direction> = {
   weight_body_mass: "neutral",
   body_mass_index: "neutral",
   body_fat_percentage: "lower",
+  fat_mass: "lower",
   lean_body_mass: "higher",
+  muscle_mass: "higher",
+  // Bone mass and body water move with total weight and hydration state rather
+  // than with anything a training decision follows.
+  bone_mass: "neutral",
+  body_water: "neutral",
   height: "neutral",
 
   // Activity

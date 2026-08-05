@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const validYAML = `
@@ -227,20 +228,37 @@ func TestOuraDefaults(t *testing.T) {
 }
 
 // TestSourcePriorityDefault verifies the default source priority list ensures
-// Oura data is preferred over HealthKit when both sources overlap.
+// the direct provider reads win over the same measurements relayed through
+// HealthKit, which arrive only when the Health app has synced.
 func TestSourcePriorityDefault(t *testing.T) {
 	cfg, err := Load(writeTemp(t, validYAML))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cfg.SourcePriority) != 2 {
-		t.Fatalf("source_priority length = %d, want 2", len(cfg.SourcePriority))
+	want := []string{"Withings", "Oura", ""}
+	if len(cfg.SourcePriority) != len(want) {
+		t.Fatalf("source_priority = %v, want %v", cfg.SourcePriority, want)
 	}
-	if cfg.SourcePriority[0] != "Oura" {
-		t.Errorf("source_priority[0] = %q, want %q", cfg.SourcePriority[0], "Oura")
+	for i, w := range want {
+		if cfg.SourcePriority[i] != w {
+			t.Errorf("source_priority[%d] = %q, want %q", i, cfg.SourcePriority[i], w)
+		}
 	}
-	if cfg.SourcePriority[1] != "" {
-		t.Errorf("source_priority[1] = %q, want empty string", cfg.SourcePriority[1])
+}
+
+// TestWithingsDefaults verifies the Withings sync settings fall back to the same
+// server-wide defaults as Oura when the YAML omits the block entirely — an
+// existing config file must not leave the syncer with a zero ticker interval.
+func TestWithingsDefaults(t *testing.T) {
+	cfg, err := Load(writeTemp(t, validYAML))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Withings.SyncInterval != 30*time.Minute {
+		t.Errorf("withings.sync_interval = %v, want 30m", cfg.Withings.SyncInterval)
+	}
+	if cfg.Withings.BackfillDays != 90 {
+		t.Errorf("withings.backfill_days = %d, want 90", cfg.Withings.BackfillDays)
 	}
 }
 

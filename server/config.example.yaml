@@ -22,6 +22,13 @@ oura:
 hevy:
   sync_interval: "30m"   # how often to poll the Hevy event feed (API key configured in Settings UI)
 
+withings:
+  sync_interval: "30m"   # how often to poll Withings (per-user creds configured in Settings UI)
+  backfill_days: 90      # days of history to fetch on first sync
+
+# Which source wins when two of them cover the same measurement. Named entries
+# match by prefix; "" is the empty source Health Auto Export writes.
 source_priority:
+  - "Withings"
   - "Oura"
   - ""

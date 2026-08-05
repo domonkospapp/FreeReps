@@ -14,6 +14,7 @@ import (
 	freerepsmcp "github.com/claude/freereps/internal/mcp"
 	"github.com/claude/freereps/internal/oura"
 	"github.com/claude/freereps/internal/storage"
+	"github.com/claude/freereps/internal/withings"
 	"github.com/go-chi/chi/v5"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"tailscale.com/client/local"
@@ -35,6 +36,10 @@ type Server struct {
 	// Hevy integration (nil if not wired up)
 	hevySyncer *hevy.Syncer
 
+	// Withings integration (nil if not wired up)
+	withingsTokenMgr *withings.TokenManager
+	withingsSyncer   *withings.Syncer
+
 	// HAE TCP import state (only one import at a time)
 	importMu     sync.Mutex
 	activeImport *haeImportState
@@ -51,6 +56,13 @@ func (s *Server) SetOura(tm *oura.TokenManager, syncer *oura.Syncer) {
 // Must be called before the server starts handling requests.
 func (s *Server) SetHevy(syncer *hevy.Syncer) {
 	s.hevySyncer = syncer
+}
+
+// SetWithings configures the Withings integration components.
+// Must be called before the server starts handling requests.
+func (s *Server) SetWithings(tm *withings.TokenManager, syncer *withings.Syncer) {
+	s.withingsTokenMgr = tm
+	s.withingsSyncer = syncer
 }
 
 // Version is set by main to make it available to handlers.
@@ -185,6 +197,16 @@ func (s *Server) routes() {
 			r.Delete("/disconnect", s.handleOuraDisconnect)
 		})
 		r.Get("/oura/callback", s.handleOuraCallback)
+
+		// Withings integration
+		r.Route("/api/v1/withings", func(r chi.Router) {
+			r.Get("/status", s.handleWithingsStatus)
+			r.Put("/credentials", s.handleWithingsCredentials)
+			r.Post("/authorize", s.handleWithingsAuthorize)
+			r.Post("/sync", s.handleWithingsSync)
+			r.Delete("/disconnect", s.handleWithingsDisconnect)
+		})
+		r.Get("/withings/callback", s.handleWithingsCallback)
 
 		// Hevy integration
 		r.Route("/api/v1/hevy", func(r chi.Router) {

@@ -16,6 +16,7 @@ type Config struct {
 	Tailscale      TailscaleConfig `yaml:"tailscale"`
 	Oura           OuraConfig      `yaml:"oura"`
 	Hevy           HevyConfig      `yaml:"hevy"`
+	Withings       WithingsConfig  `yaml:"withings"`
 	SourcePriority []string        `yaml:"source_priority"`
 }
 
@@ -61,6 +62,16 @@ type HevyConfig struct {
 	RawSyncInterval string `yaml:"sync_interval"`
 }
 
+// WithingsConfig holds server-wide Withings sync settings. Per-user credentials
+// (client_id, client_secret) are stored in the database, not here.
+type WithingsConfig struct {
+	SyncInterval time.Duration `yaml:"-"`
+	BackfillDays int           `yaml:"backfill_days"`
+
+	// RawSyncInterval is the YAML representation; parsed into SyncInterval by Load.
+	RawSyncInterval string `yaml:"sync_interval"`
+}
+
 // DSN returns a PostgreSQL connection string.
 func (d DatabaseConfig) DSN() string {
 	sslmode := d.SSLMode
@@ -92,7 +103,14 @@ func Load(path string) (*Config, error) {
 		Hevy: HevyConfig{
 			RawSyncInterval: "30m",
 		},
-		SourcePriority: []string{"Oura", ""},
+		Withings: WithingsConfig{
+			RawSyncInterval: "30m",
+			BackfillDays:    90,
+		},
+		// Withings first: the same weight and blood pressure values also reach
+		// FreeReps through Apple Health, where they arrive only when the Health
+		// app has synced. The direct read is the more timely of the two.
+		SourcePriority: []string{"Withings", "Oura", ""},
 	}
 
 	data, err := os.ReadFile(path)
@@ -121,6 +139,15 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("parsing hevy.sync_interval: %w", err)
 		}
 		cfg.Hevy.SyncInterval = d
+	}
+
+	// Parse Withings sync interval.
+	if cfg.Withings.RawSyncInterval != "" {
+		d, err := time.ParseDuration(cfg.Withings.RawSyncInterval)
+		if err != nil {
+			return nil, fmt.Errorf("parsing withings.sync_interval: %w", err)
+		}
+		cfg.Withings.SyncInterval = d
 	}
 
 	if err := cfg.validate(); err != nil {

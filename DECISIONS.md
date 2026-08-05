@@ -19,6 +19,55 @@ is as recorded there; where the record named no alternative, none is claimed.
 
 ---
 
+## 2026-08-05 — Withings is read directly, and the Apple Health path stays
+
+**Decided:** 2026-08-05
+
+**Decision.** FreeReps reads weight, body composition and blood pressure from the
+Withings Public API (`internal/withings/`, wire format in
+[`server/specs/withings-api.md`](server/specs/withings-api.md)), on the same
+shape as the Oura integration: per-user app credentials in the database, OAuth2
+consent through the settings tab, a 30-minute poll with a 90-day backfill.
+
+Three sub-decisions that are not obvious from the code:
+
+- **The Health Auto Export path is not disabled.** It stays the only route for an
+  installation without a Withings account. Overlap is resolved by source
+  priority, whose default becomes `["Withings", "Oura", ""]`
+  (`internal/config/config.go`).
+- **Blood pressure is written as two qty metrics**, `blood_pressure_systolic`
+  and `blood_pressure_diastolic`, not through the `Systolic`/`Diastolic` columns
+  of `HealthMetricRow`. Those columns exist for the HAE shape, but
+  `blood_pressure` has no `metric_allowlist` entry, so rows written that way are
+  rejected at ingest. The dashboard, the correlation picker and the iOS app all
+  work with the split names.
+- **The pulse the blood pressure cuff records gets its own metric**,
+  `blood_pressure_heart_rate`, rather than joining `heart_rate`. A single seated
+  measurement in the same series as the continuous heart rate from Oura and the
+  Apple Watch shifts every daily average, and the two stop being comparable.
+
+**Reasoning.** The measurements existed in FreeReps only via Health Mate → Apple
+Health → Health Auto Export. That chain advances when the Health app on the
+phone syncs, which is not on a schedule anyone controls. The Withings Public API
+tier requires no contract and no approval, so the direct read costs one
+registered application.
+
+Two API properties drove the implementation and are the reason the code deviates
+from the Oura equivalent in two places:
+
+- **Errors arrive with HTTP 200** and a non-zero `status` in the body. Branching
+  on the HTTP status alone turns every failure into a successful empty result.
+- **The refresh token rotates** and the previous one stops working within hours.
+  `UpsertWithingsToken` is therefore an upsert rather than the bare `UPDATE`
+  used for Oura, where a row that does not exist makes the write a silent no-op.
+
+**Trigger to re-open.** Withings moving the measure endpoints behind a paid plan;
+a Withings webhook subscription replacing the poll; or the Health Auto Export
+path being retired for other reasons, which would remove the need for a priority
+rule at all.
+
+---
+
 ## 2026-08-05 — The web UI runs on the Modernist design system, with one phone breakpoint
 
 **Decided:** 2026-08-05

@@ -246,6 +246,38 @@ FreeReps integrates directly with the Oura API v2 to pull ring data. Syncs every
 
 4. **Sync starts automatically** every 30 minutes. Use "Sync Now" for immediate sync. Check Settings > Import Logs for sync status.
 
+### Withings
+
+FreeReps reads weight, body composition and blood pressure directly from the
+Withings Public API. Syncs every 30 minutes with 90-day initial backfill.
+
+**Data synced:** weight, fat ratio, fat mass, fat free mass, muscle mass, bone
+mass, body water, blood pressure (systolic/diastolic) and the pulse the cuff
+records with each reading.
+
+The same measurements also reach FreeReps through Apple Health, where they
+arrive only once the Health app has synced. The default source priority puts
+Withings first, so the direct read wins wherever both cover a day. The Apple
+Health path is not disabled — it remains the only route for an installation
+without a Withings account.
+
+#### Withings Setup
+
+1. **Register an app** in the [Withings Partner Hub](https://developer.withings.com/dashboard/).
+   The Public API tier requires no contract and no approval.
+   - Redirect URI: `https://your-freereps-host.ts.net/withings/callback`
+   - Scope: `user.metrics`
+
+2. **Enter credentials in FreeReps**: Settings > Withings, enter Client ID and
+   Client Secret, click "Save credentials".
+
+3. **Authorize**: Click "Authorize with Withings" and approve access. The
+   authorization code is valid for 30 seconds, so complete the redirect rather
+   than leaving the consent page open.
+
+4. **Sync starts automatically** every 30 minutes. Use "Sync now" for an
+   immediate run; Settings > Import Logs carries the outcome.
+
 ### Health Auto Export (iOS, legacy)
 
 The iOS app [Health Auto Export](https://healthyapps.dev) can export Apple Health data as `.hae` files to iCloud Drive, which can then be uploaded to FreeReps using the `freereps-upload` CLI tool.
@@ -320,9 +352,9 @@ No local FreeReps binary needed — `mcp-proxy` handles the transport bridging, 
 
 | Category | Metrics |
 |----------|---------|
-| Cardiovascular | heart_rate, resting_heart_rate, heart_rate_variability, blood_oxygen_saturation, respiratory_rate, vo2_max |
+| Cardiovascular | heart_rate, resting_heart_rate, heart_rate_variability, blood_oxygen_saturation, respiratory_rate, vo2_max, blood_pressure_systolic, blood_pressure_diastolic, blood_pressure_heart_rate |
 | Sleep | sleep_analysis, apple_sleeping_wrist_temperature |
-| Body | weight_body_mass, body_fat_percentage |
+| Body | weight_body_mass, body_fat_percentage, fat_mass, lean_body_mass, muscle_mass, bone_mass, body_water |
 | Activity | active_energy, basal_energy_burned, step_count, flights_climbed, apple_exercise_time |
 | Oura | readiness_score, sleep_score, activity_score, temperature_deviation, stress, recovery, resilience, cardiovascular_age |
 | Workouts | All types (with HR data + routes, deduped across sources) |
@@ -360,6 +392,11 @@ No local FreeReps binary needed — `mcp-proxy` handles the transport bridging, 
 | `/api/v1/oura/authorize` | POST | Start Oura OAuth2 flow |
 | `/api/v1/oura/sync` | POST | Trigger manual Oura sync |
 | `/api/v1/oura/disconnect` | DELETE | Remove Oura connection |
+| `/api/v1/withings/status` | GET | Withings connection status |
+| `/api/v1/withings/credentials` | PUT | Save Withings OAuth2 credentials |
+| `/api/v1/withings/authorize` | POST | Start Withings OAuth2 flow |
+| `/api/v1/withings/sync` | POST | Trigger manual Withings sync |
+| `/api/v1/withings/disconnect` | DELETE | Remove Withings connection |
 | `/api/v1/me` | GET | Current user identity |
 
 ## Documents
