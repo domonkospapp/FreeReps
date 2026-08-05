@@ -112,7 +112,9 @@ func (s *Server) handleLatestMetrics(w http.ResponseWriter, r *http.Request) {
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
-		latest, errLatest = s.db.GetLatestMetrics(ctx, uid)
+		// Naming the visible metrics turns a walk across every index entry
+		// into one bounded lookup each.
+		latest, errLatest = s.db.GetLatestMetricsFor(ctx, uid, names)
 	}()
 	go func() {
 		defer wg.Done()
