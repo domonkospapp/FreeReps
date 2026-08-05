@@ -61,7 +61,9 @@ func (db *DB) GetDailySeries(ctx context.Context, userID int, metricNames []stri
 	inClause := strings.Join(params, ",")
 	// The set spans categories, so the user's _default priority applies.
 	priorities := db.ResolveSourcePriority(ctx, userID, "_default")
-	cte := dedupCTEMultiMetric(priorities, "$1", inClause)
+	// The range belongs inside the CTE: outside it, the window function runs
+	// over the user's whole history before the filter applies.
+	cte := dedupCTEMultiMetricRange(priorities, "$1", inClause, startParam, endParam)
 
 	// One CASE covers both aggregations: metric_name is in the GROUP BY, so the
 	// branch is decided per group rather than per row.
@@ -81,11 +83,11 @@ func (db *DB) GetDailySeries(ctx context.Context, userID int, metricNames []stri
 	query := fmt.Sprintf(
 		`%sSELECT metric_name, time_bucket('1 day', time) AS day, %s AS val
 		 FROM deduped
-		 WHERE rn = 1 AND time >= %s AND time < %s
+		 WHERE rn = 1
 		 GROUP BY metric_name, day
 		 HAVING %s IS NOT NULL
 		 ORDER BY metric_name, day ASC`,
-		cte, aggExpr, startParam, endParam, aggExpr)
+		cte, aggExpr, aggExpr)
 
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {

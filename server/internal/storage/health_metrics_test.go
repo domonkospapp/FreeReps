@@ -80,12 +80,14 @@ func TestLatestMetricsQueryDedupesBySourcePriority(t *testing.T) {
 	query := latestMetricsQuery([]string{"Oura", ""})
 
 	checks := []string{
-		"WITH deduped AS",
-		"PARTITION BY metric_name, time_bucket('5 minutes', time)",
-		// Priority decides inside a bucket, recency decides between buckets.
+		// Step one: the newest timestamp per metric, straight off the index.
+		"SELECT DISTINCT ON (metric_name) metric_name, time AS peak",
+		// Step two: only the five minutes priority is defined over.
+		"h.time > n.peak - interval '5 minutes'",
+		// Priority decides within that window, recency breaks the tie.
 		"WHEN source LIKE 'Oura%' THEN 1",
-		"WHERE rn = 1",
-		"ORDER BY metric_name, time DESC",
+		"ORDER BY h.metric_name,",
+		"h.time DESC",
 	}
 
 	for _, check := range checks {
@@ -95,12 +97,51 @@ func TestLatestMetricsQueryDedupesBySourcePriority(t *testing.T) {
 	}
 }
 
+// TestLatestMetricsQueryDoesNotWindowTheWholeTable exists because the obvious
+// way to apply source priority — ROW_NUMBER over every row, then DISTINCT ON —
+// numbered 4.5 million rows to return seventeen and cost the front page five
+// seconds. The shape, not the result, is what regresses.
+func TestLatestMetricsQueryDoesNotWindowTheWholeTable(t *testing.T) {
+	query := latestMetricsQuery([]string{"Oura", ""})
+
+	if strings.Contains(query, "ROW_NUMBER") {
+		t.Errorf("latestMetricsQuery numbers rows again:\n%s", query)
+	}
+	// Every scan of health_metrics has to be bounded by a time predicate.
+	if strings.Contains(query, "PARTITION BY") {
+		t.Errorf("latestMetricsQuery partitions again:\n%s", query)
+	}
+}
+
+// TestDedupCTEMultiMetricRangeFiltersInsideTheCTE exists because the same
+// filter one level out — in the caller's WHERE — makes Postgres number the
+// user's whole history before narrowing to the window, which is why the front
+// page took the same time for 30 days as for a year.
+func TestDedupCTEMultiMetricRangeFiltersInsideTheCTE(t *testing.T) {
+	cte := dedupCTEMultiMetricRange([]string{"Oura", ""}, "$1", "$2,$3", "$4", "$5")
+
+	openParen := strings.Index(cte, "(")
+	closeParen := strings.LastIndex(cte, ")")
+	if openParen < 0 || closeParen < 0 {
+		t.Fatalf("unexpected CTE shape:\n%s", cte)
+	}
+	inner := cte[openParen:closeParen]
+
+	for _, check := range []string{"time >= $4", "time < $5"} {
+		if !strings.Contains(inner, check) {
+			t.Errorf("range predicate %q is outside the CTE body:\n%s", check, cte)
+		}
+	}
+}
+
 // TestLatestMetricsQueryWithoutPrioritiesIsANoOp verifies the query still
 // resolves when no priority is configured, rather than emitting an empty CASE.
 func TestLatestMetricsQueryWithoutPrioritiesIsANoOp(t *testing.T) {
 	query := latestMetricsQuery(nil)
 
-	if !strings.Contains(query, "ORDER BY 1") {
+	// sourcePriorityCaseSQL collapses to the constant 1, leaving recency as the
+	// only tiebreaker rather than emitting an empty CASE.
+	if !strings.Contains(query, "ORDER BY h.metric_name, 1, h.time DESC") {
 		t.Errorf("expected the no-op ordering, got:\n%s", query)
 	}
 }

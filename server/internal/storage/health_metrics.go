@@ -65,6 +65,28 @@ func dedupCTEMultiMetric(priorities []string, userIDParam, inClause string) stri
 		) `, priorityExpr, userIDParam, inClause)
 }
 
+// dedupCTEMultiMetricRange is dedupCTEMultiMetric with the time range inside the
+// CTE rather than in the caller's WHERE clause.
+//
+// That distinction is the whole cost of the query. Filtering outside makes
+// Postgres number every row the user holds for those metrics before discarding
+// all but the window — which is why the front page took the same five seconds
+// whether it asked for 30 days or a year. Inside, the range joins the index
+// condition on idx_health_metrics_dedup_cover.
+func dedupCTEMultiMetricRange(priorities []string, userIDParam, inClause, startParam, endParam string) string {
+	priorityExpr := sourcePriorityCaseSQL(priorities)
+	return fmt.Sprintf(
+		`WITH deduped AS (
+			SELECT *, ROW_NUMBER() OVER (
+				PARTITION BY metric_name, time_bucket('5 minutes', time)
+				ORDER BY %s
+			) AS rn
+			FROM health_metrics
+			WHERE user_id = %s AND metric_name IN (%s)
+			  AND time >= %s AND time < %s
+		) `, priorityExpr, userIDParam, inClause, startParam, endParam)
+}
+
 // cumulativeMetrics are metrics that should be summed (not averaged) when aggregating.
 var cumulativeMetrics = map[string]bool{
 	"active_energy":                 true,
@@ -175,20 +197,34 @@ func (db *DB) GetLatestMetrics(ctx context.Context, userID int) ([]models.Health
 
 // latestMetricsQuery builds the deduplicated latest-per-metric query. Split out
 // so the priority ordering can be asserted without a database.
+//
+// Two steps, both index-driven. The first walks idx_health_metrics_dedup_cover
+// backwards to find the newest timestamp per metric — one row per metric, no
+// scan. The second reopens only the five minutes before each of those, which is
+// the window source priority is defined over.
+//
+// The obvious form — ROW_NUMBER over every row, then DISTINCT ON — is what made
+// the front page take five seconds: it numbered 4.5 million rows to return
+// seventeen.
 func latestMetricsQuery(priorities []string) string {
 	return fmt.Sprintf(
-		`WITH deduped AS (
-			SELECT *, ROW_NUMBER() OVER (
-				PARTITION BY metric_name, time_bucket('5 minutes', time)
-				ORDER BY %s
-			) AS rn
+		`WITH newest AS (
+			SELECT DISTINCT ON (metric_name) metric_name, time AS peak
 			FROM health_metrics
 			WHERE user_id = $1
+			ORDER BY metric_name, time DESC
 		)
-		SELECT DISTINCT ON (metric_name) time, user_id, metric_name, source, units, qty, min_val, avg_val, max_val, systolic, diastolic, source_uuid
-		 FROM deduped
-		 WHERE rn = 1
-		 ORDER BY metric_name, time DESC`, sourcePriorityCaseSQL(priorities))
+		SELECT DISTINCT ON (h.metric_name)
+		       h.time, h.user_id, h.metric_name, h.source, h.units,
+		       h.qty, h.min_val, h.avg_val, h.max_val,
+		       h.systolic, h.diastolic, h.source_uuid
+		 FROM newest n
+		 JOIN health_metrics h
+		   ON h.user_id = $1
+		  AND h.metric_name = n.metric_name
+		  AND h.time > n.peak - interval '5 minutes'
+		  AND h.time <= n.peak
+		 ORDER BY h.metric_name, %s, h.time DESC`, sourcePriorityCaseSQL(priorities))
 }
 
 // GetTimeSeries returns aggregated time-series data using time_bucket.
