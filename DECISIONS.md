@@ -57,6 +57,15 @@ band, gridlines, baseline, two polylines — needs no plotting library.
 **The stated range is p05–p95, not min–max.** One dropped sensor reading would
 widen a min/max range enough to make the number meaningless.
 
+**The home screen icon carries a light mark, against the package.** The package
+draws ink `#201e1d` on the accent field. iOS 18 renders home screen icons in a
+light, a dark and a tinted mode, and a web app cannot supply a separate dark
+variant — iOS derives it from the one icon. With the mark darker than the field
+(luminance 0.013 against 0.200) both collapse toward black in the dark mode and
+the icon reads as an empty rounded square. The mark is now `#f3f2f2` at
+luminance 0.890, so it stays the brighter element through the conversion. Form,
+kerning and the rule are untouched; only the fill changed.
+
 **Distance is normalised to kilometres in one place.** Apple Health reports
 walking and cycling distance in metres, and the summary strip summed the raw
 field under a fixed "km" label — 428 km rendered as 427 955. Every distance on
