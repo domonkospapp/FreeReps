@@ -13,6 +13,10 @@ import (
 // numbers. Stored as a JSON array of metric names.
 const PrefFrontPageHeroes = "front_page_heroes"
 
+// PrefMaxHeartRate is the user's own maximum heart rate in bpm, which the
+// training zones derive from. Stored as a JSON number.
+const PrefMaxHeartRate = "max_heart_rate"
+
 // DefaultFrontPageHeroes is used until the user picks their own. Readiness,
 // sleep, HRV and resting heart rate answer "how am I doing today" without
 // needing a chart.

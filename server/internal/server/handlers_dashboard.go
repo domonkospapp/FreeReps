@@ -210,7 +210,7 @@ func (s *Server) handleWorkoutZones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	zones, err := s.db.GetWorkoutZones(r.Context(), uid, start, end, maxHR)
+	zones, err := s.db.GetWorkoutZones(r.Context(), uid, start, end, maxHR.BPM)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -218,9 +218,57 @@ func (s *Server) handleWorkoutZones(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"max_heart_rate": maxHR,
-		"zones":          zones,
+		"max_heart_rate":          maxHR.BPM,
+		"max_heart_rate_origin":   maxHR.Origin,
+		"observed_max_heart_rate": maxHR.Observed,
+		"zones":                   zones,
 	})
+}
+
+// handleMaxHeartRate reports the figure the zones derive from and where it came
+// from, so the settings screen can offer the measured value as a starting point.
+func (s *Server) handleMaxHeartRate(w http.ResponseWriter, r *http.Request) {
+	uid, ok := mustUserID(w, r)
+	if !ok {
+		return
+	}
+	maxHR, err := s.db.GetMaxHeartRate(r.Context(), uid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, maxHR)
+}
+
+// handleSaveMaxHeartRate stores the user's own maximum. A zero clears it and
+// returns the zones to the measured figure.
+func (s *Server) handleSaveMaxHeartRate(w http.ResponseWriter, r *http.Request) {
+	uid, ok := mustUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		BPM float64 `json:"bpm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	// Outside this range the value is a typo, not a heart rate, and it would
+	// silently distort every zone bar in the app.
+	if body.BPM != 0 && (body.BPM < 100 || body.BPM > 250) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "a maximum heart rate is between 100 and 250 bpm; send 0 to clear it",
+		})
+		return
+	}
+
+	if err := s.db.SetPreference(r.Context(), uid, storage.PrefMaxHeartRate, body.BPM); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
 // handleSaveFrontPageHeroes stores the four metrics the dashboard shows as hero

@@ -108,6 +108,33 @@ export async function fetchFrontPage(
   return res.json();
 }
 
+export interface MaxHeartRate {
+  bpm: number;
+  /** "configured" when the user set it, "observed" when it was measured. */
+  origin: "configured" | "observed";
+  /** The measured figure, kept even when a configured value overrides it. */
+  observed: number;
+}
+
+export async function fetchMaxHeartRate(): Promise<MaxHeartRate> {
+  const res = await fetch(`${BASE}/preferences/max-heart-rate`);
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+/** Send 0 to clear the configured value and fall back to the measured one. */
+export async function saveMaxHeartRate(bpm: number): Promise<void> {
+  const res = await fetch(`${BASE}/preferences/max-heart-rate`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bpm }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `${res.status}: ${res.statusText}`);
+  }
+}
+
 export async function saveFrontPageHeroes(heroes: string[]): Promise<void> {
   const res = await fetch(`${BASE}/preferences/front-page-heroes`, {
     method: "PUT",

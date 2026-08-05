@@ -20,16 +20,47 @@ type WorkoutZones struct {
 	Shares    []float64 `json:"shares"`
 }
 
-// GetMaxHeartRate returns the heart rate the zone bands are computed from.
-// Returns 0 when no workout carries heart rate data.
+// MaxHeartRate carries the figure the zone bands derive from, and where it came
+// from — the screen states the source, because the two differ in kind.
+type MaxHeartRate struct {
+	BPM float64 `json:"bpm"`
+	// "configured" when the user set it, "observed" when it was measured.
+	Origin string `json:"origin"`
+	// The measured figure, kept even when a configured value overrides it, so
+	// the settings screen can offer it as a starting point.
+	Observed float64 `json:"observed"`
+}
+
+// GetMaxHeartRate returns the heart rate the zone bands are computed from,
+// preferring the user's own figure over the measured one. BPM is 0 when
+// neither exists.
 //
-// This is the 99.9th percentile, not the maximum. A single spurious sample —
-// a chest strap dropout reads as 210 bpm — would otherwise set every band: at
-// 210 the second zone starts at 126, which puts whole strength sessions in
-// zone 1 and makes the bars say nothing. The percentile keeps one bad sample
-// from redefining the scale while still tracking a genuine peak, since a real
-// maximum effort contributes many samples near the top, not one.
-func (db *DB) GetMaxHeartRate(ctx context.Context, userID int) (float64, error) {
+// A configured maximum wins because it is a physiological constant, while the
+// measured figure only describes how hard this person has trained so far —
+// letting the bands shift retroactively after one hard session.
+func (db *DB) GetMaxHeartRate(ctx context.Context, userID int) (MaxHeartRate, error) {
+	observed, err := db.observedMaxHeartRate(ctx, userID)
+	if err != nil {
+		return MaxHeartRate{}, err
+	}
+
+	var configured float64
+	found, err := db.GetPreference(ctx, userID, PrefMaxHeartRate, &configured)
+	if err != nil {
+		return MaxHeartRate{}, err
+	}
+	if found && configured > 0 {
+		return MaxHeartRate{BPM: configured, Origin: "configured", Observed: observed}, nil
+	}
+	return MaxHeartRate{BPM: observed, Origin: "observed", Observed: observed}, nil
+}
+
+// observedMaxHeartRate is the 99.9th percentile, not the maximum. A single
+// spurious sample — a chest strap dropout reads as 210 bpm — would otherwise
+// set every band: at 210 the second zone starts at 126, which puts whole
+// strength sessions in zone 1 and makes the bars say nothing. A real maximum
+// effort contributes many samples near the top, an artefact contributes one.
+func (db *DB) observedMaxHeartRate(ctx context.Context, userID int) (float64, error) {
 	var peak *float64
 	err := db.Pool.QueryRow(ctx,
 		`SELECT PERCENTILE_CONT(0.999) WITHIN GROUP (ORDER BY COALESCE(max_bpm, avg_bpm))

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMe, fetchStats, fetchVersion } from "../../api";
 import { useTheme, type ThemePreference } from "../../theme";
 import { formatNumber } from "../../utils/format";
+import MaxHeartRateRow from "./MaxHeartRateRow";
 import { MONO, Row, TabHeader } from "./parts";
 
 const THEMES: { value: ThemePreference; label: string }[] = [
@@ -44,6 +45,8 @@ export default function IdentityTab() {
         <span style={MONO}>{version.data?.version ?? "—"}</span>
       </Row>
       <Row label="Database">TimescaleDB · {rows}</Row>
+
+      <MaxHeartRateRow />
 
       <Row label="Appearance">
         <span className="seg">
