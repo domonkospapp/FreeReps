@@ -73,6 +73,13 @@ jobs:
     with:
       app_name: freereps
       target_host: freereps-lxc.coydog-fence.ts.net
+      # The shared workflow's health step is gated on this input being set
+      # (`if: inputs.health_url != ''`). Without it the deploy job reports
+      # success as soon as `docker compose up -d` returns, which says nothing
+      # about whether the service serves. vimmary lost an outage to exactly
+      # that on 2026-08-06. freereps had no health check on either path — the
+      # Ansible catalog entry gained one in the same change.
+      health_url: https://freereps.coydog-fence.ts.net/healthz
       # Dockerfile and build context live in server/, not at the repo root.
       build_context: server
       # The deployed compose belongs to homelab (Ansible writes compose.yaml
