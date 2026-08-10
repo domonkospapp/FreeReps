@@ -1,0 +1,4 @@
+-- Cannot reverse a delete. The rows removed by the up migration are in the dump
+-- taken before it ran: root@freereps-lxc:/root/freereps-backups/, 2026-08-10,
+-- workout_sets-full-2026-08-10.sql
+-- (sha256 1b6e4eb09ef127b3848adbe44a4ba53255eab482ee81791c4d9c97de7a492256).
