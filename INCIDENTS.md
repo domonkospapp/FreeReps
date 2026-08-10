@@ -69,10 +69,23 @@ UTC-read copy 56 to 136 minutes after it. The earlier copy is the true one.
 - Migration `000027_dedupe_alpha_sessions` deleted the later copy of every
   session whose name and full set signature matched another copy of the same
   session: 117 sessions, 2936 set rows, of which 2367 working sets.
-- `server/scripts/2026-08-10-alpha-utc-session-times.sql` shifted the 46
-  sessions imported after 2026-02-21 — written by the container in UTC, never
-  duplicated because no second import followed — onto the same Europe/Berlin
-  reading as the rest of the table.
+- The 46 sessions imported after 2026-02-21 needed a second step. They were
+  written by the container alone, in UTC, so they had no duplicate — they were
+  an hour or two late, and with the importer now reading Europe/Berlin a
+  re-import would have inserted a corrected copy beside each of them.
+  A script was written to move them by `UPDATE`. Before it ran, the export was
+  re-imported, which did the same thing by a different route: it wrote the
+  correct instants as 1067 new rows beside the stale ones, brought in one
+  genuinely new session (2026-08-08) and left the 117 corrected sessions
+  untouched, as they now conflict. Migration
+  `000028_dedupe_alpha_sessions_after_reimport` then deleted the stale copies
+  under the same content-matched rule as 000027 — 1067 set rows in 46 sessions,
+  876 of them working sets — and the script was removed as obsolete.
+
+  The window between the two steps is the lesson within the lesson: a
+  half-corrected table is a table where the next import duplicates the
+  uncorrected half. Migration 000027 and this correction should have shipped
+  together.
 
 `sessions` in `get_strength_summary` counted distinct session start times, which
 is what it still does; the 22 for an 11-day January was the duplication showing

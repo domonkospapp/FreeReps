@@ -1,0 +1,4 @@
+-- Cannot reverse a delete. What it removed is the UTC-read copy of 46 sessions,
+-- each of which remains in the table under its Europe/Berlin instant; the rows
+-- as they stood before 000027 are in the dump named in that migration's down
+-- file.
