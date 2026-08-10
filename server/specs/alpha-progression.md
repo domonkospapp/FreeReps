@@ -33,6 +33,19 @@ Fields:
 - **Date + time**: `"YYYY-MM-DD H:MM h"` — 24h format, space before `h`
 - **Duration**: `"H:MM hr"` or `"MM:SS hr"`
 
+**The session time carries no timezone.** It is a bare wall clock, and the file
+holds nothing that identifies the zone it was recorded in. The importer reads it
+in `ingest.session_timezone` (default `Europe/Berlin`) and stores the resulting
+instant in `workout_sets.session_date`, which is part of the unique constraint
+`workout_sets_source_natural_key`. Reading the same export under two different
+zones therefore stores every session twice — see [`INCIDENTS.md`](../../INCIDENTS.md),
+2026-08-10. The zone must not be taken from the process environment.
+
+Checked against the `workouts` table on 2026-08-10: read in `Europe/Berlin`, the
+session time lands within ±20 minutes of the matching Apple Health
+`Traditional Strength Training` start on 117 of 117 days, so the wall clock is
+the session's start in the user's local zone.
+
 ### Exercise Header
 
 ```

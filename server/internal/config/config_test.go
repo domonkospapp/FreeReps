@@ -289,3 +289,64 @@ oura:
 		t.Errorf("oura.backfill_days = %d, want 30", cfg.Oura.BackfillDays)
 	}
 }
+
+// TestIngestTimezoneDefault verifies that a config without an ingest block
+// resolves to Europe/Berlin. The default is load-bearing: the stored Alpha
+// history was written in that zone, and session_date is part of a workout_sets
+// row's natural key, so a different resolved zone would insert every
+// re-imported session a second time (INCIDENTS.md, 2026-08-10).
+func TestIngestTimezoneDefault(t *testing.T) {
+	cfg, err := Load(writeTemp(t, validYAML))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Ingest.SessionTimezone != "Europe/Berlin" {
+		t.Errorf("ingest.session_timezone = %q, want Europe/Berlin", cfg.Ingest.SessionTimezone)
+	}
+	if cfg.Ingest.Location == nil {
+		t.Fatal("ingest location is nil")
+	}
+	// Resolved against a date in CET, so the offset is unambiguous.
+	winter := time.Date(2026, 1, 2, 9, 22, 0, 0, cfg.Ingest.Location)
+	if got := winter.UTC().Format(time.RFC3339); got != "2026-01-02T08:22:00Z" {
+		t.Errorf("9:22 local = %s, want 2026-01-02T08:22:00Z", got)
+	}
+}
+
+// TestIngestTimezoneRejectsEnvironmentDependentValues verifies that the two
+// spellings time.LoadLocation accepts as "whatever this host happens to be"
+// fail startup rather than resolving. Both would restore the behaviour that
+// caused the duplicate import: "" resolves to UTC, "Local" to the process zone.
+func TestIngestTimezoneRejectsEnvironmentDependentValues(t *testing.T) {
+	for _, tz := range []string{`""`, `"Local"`} {
+		if _, err := Load(writeTemp(t, validYAML+"ingest:\n  session_timezone: "+tz+"\n")); err == nil {
+			t.Errorf("session_timezone %s loaded without error, want a failure", tz)
+		}
+	}
+}
+
+// TestIngestTimezoneUnknownZoneFails verifies that a typo fails startup instead
+// of silently leaving the location at UTC.
+func TestIngestTimezoneUnknownZoneFails(t *testing.T) {
+	_, err := Load(writeTemp(t, validYAML+"ingest:\n  session_timezone: \"Europe/Berlim\"\n"))
+	if err == nil {
+		t.Fatal("unknown zone loaded without error, want a failure")
+	}
+}
+
+// TestIngestTimezoneEnvOverride verifies the FREEREPS_INGEST_TIMEZONE override,
+// which is how a deployment that renders config.yaml from elsewhere sets the
+// zone without touching the file.
+func TestIngestTimezoneEnvOverride(t *testing.T) {
+	t.Setenv("FREEREPS_INGEST_TIMEZONE", "America/New_York")
+	cfg, err := Load(writeTemp(t, validYAML))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Ingest.SessionTimezone != "America/New_York" {
+		t.Errorf("ingest.session_timezone = %q, want America/New_York", cfg.Ingest.SessionTimezone)
+	}
+	if cfg.Ingest.Location.String() != "America/New_York" {
+		t.Errorf("resolved location = %q, want America/New_York", cfg.Ingest.Location)
+	}
+}

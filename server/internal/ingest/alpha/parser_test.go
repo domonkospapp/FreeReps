@@ -3,6 +3,12 @@ package alpha
 import (
 	"strings"
 	"testing"
+	"time"
+
+	// Tests resolve Europe/Berlin by name, which a machine without
+	// /usr/share/zoneinfo cannot do. The production path gets the same
+	// database through internal/config.
+	_ "time/tzdata"
 )
 
 const sampleCSV = `
@@ -48,7 +54,7 @@ const sampleCSV = `
 // TestParseCompleteSessions verifies parsing a multi-session CSV with exercises and sets.
 // This is the primary integration test for the parser — covers the happy path end-to-end.
 func TestParseCompleteSessions(t *testing.T) {
-	sessions, err := Parse(strings.NewReader(sampleCSV))
+	sessions, err := Parse(strings.NewReader(sampleCSV), berlin(t))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -230,7 +236,7 @@ func TestWarmupBodyweightPlus(t *testing.T) {
 
 // TestEmptyInput verifies that empty input returns no sessions without error.
 func TestEmptyInput(t *testing.T) {
-	sessions, err := Parse(strings.NewReader(""))
+	sessions, err := Parse(strings.NewReader(""), berlin(t))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,7 +253,7 @@ func TestParseTabDelimited(t *testing.T) {
 		"#\tKG\tREPS\tRIR\n" +
 		"1\t42,5\t8\t0,5\n" +
 		"2\t42,5\t6\t0,5\n"
-	sessions, err := Parse(strings.NewReader(tabCSV))
+	sessions, err := Parse(strings.NewReader(tabCSV), berlin(t))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -285,7 +291,7 @@ func TestPlusSuffixReps(t *testing.T) {
 #;KG;REPS;RIR
 1;+0;5+;0
 `
-	sessions, err := Parse(strings.NewReader(csv))
+	sessions, err := Parse(strings.NewReader(csv), berlin(t))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -316,5 +322,111 @@ func TestSplitExerciseNameEquipment(t *testing.T) {
 	}
 	if equip != "Machine" {
 		t.Errorf("equip = %q", equip)
+	}
+}
+
+// berlin returns the zone the stored Alpha history was imported in. Tests read
+// the fixtures in it so that the expected instants below are stable.
+func berlin(t *testing.T) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatalf("loading Europe/Berlin: %v", err)
+	}
+	return loc
+}
+
+// TestParseSessionDateUsesGivenZone verifies that the wall clock in the export
+// is read in the zone the caller passes, across the DST boundary. The Alpha
+// export carries no zone of its own, so a session logged at 4:54 is 03:54Z in
+// winter and 02:54Z in summer.
+func TestParseSessionDateUsesGivenZone(t *testing.T) {
+	loc := berlin(t)
+	cases := []struct {
+		in   string
+		want string // RFC3339 in UTC
+	}{
+		{"2026-02-19 4:54", "2026-02-19T03:54:00Z"}, // CET, UTC+1
+		{"2025-06-11 9:35", "2025-06-11T07:35:00Z"}, // CEST, UTC+2
+	}
+	for _, c := range cases {
+		got, err := parseSessionDate(c.in, loc)
+		if err != nil {
+			t.Fatalf("parseSessionDate(%q): %v", c.in, err)
+		}
+		if got.UTC().Format(time.RFC3339) != c.want {
+			t.Errorf("parseSessionDate(%q) = %s, want %s", c.in, got.UTC().Format(time.RFC3339), c.want)
+		}
+	}
+}
+
+// TestParseIsIndependentOfProcessTimezone is the regression test for the
+// duplicate import of 2026-08-10 (INCIDENTS.md). parseSessionDate used
+// time.Local, so the same export read on a developer machine in Europe/Berlin
+// and in the deployed container — which has no /etc/localtime and therefore
+// runs in UTC — produced session_date values an hour apart. session_date is
+// part of workout_sets_source_natural_key, so ON CONFLICT DO NOTHING saw two
+// distinct sessions and the whole history was stored twice.
+//
+// The test swaps time.Local underneath an otherwise identical parse: the
+// resulting instants must not move.
+func TestParseIsIndependentOfProcessTimezone(t *testing.T) {
+	loc := berlin(t)
+
+	parseUnder := func(local *time.Location) []time.Time {
+		saved := time.Local
+		time.Local = local
+		defer func() { time.Local = saved }()
+
+		sessions, err := Parse(strings.NewReader(sampleCSV), loc)
+		if err != nil {
+			t.Fatalf("parse error under %s: %v", local, err)
+		}
+		dates := make([]time.Time, len(sessions))
+		for i, s := range sessions {
+			dates[i] = s.Date
+		}
+		return dates
+	}
+
+	inUTC := parseUnder(time.UTC)
+	inBerlin := parseUnder(loc)
+	inKathmandu := parseUnder(time.FixedZone("Asia/Kathmandu", 5*3600+45*60))
+
+	if len(inUTC) == 0 {
+		t.Fatal("no sessions parsed")
+	}
+	for i := range inUTC {
+		if !inUTC[i].Equal(inBerlin[i]) {
+			t.Errorf("session %d moved between UTC and Europe/Berlin: %s vs %s",
+				i, inUTC[i].UTC(), inBerlin[i].UTC())
+		}
+		if !inUTC[i].Equal(inKathmandu[i]) {
+			t.Errorf("session %d moved between UTC and a +05:45 process zone: %s vs %s",
+				i, inUTC[i].UTC(), inKathmandu[i].UTC())
+		}
+	}
+
+	// The instant itself, not just its stability, is what lands in the natural
+	// key — pin it so a changed default cannot pass this test silently.
+	if want := "2026-02-19T03:54:00Z"; inUTC[0].UTC().Format(time.RFC3339) != want {
+		t.Errorf("first session = %s, want %s", inUTC[0].UTC().Format(time.RFC3339), want)
+	}
+}
+
+// TestParseNilLocationIsUTC verifies the documented fallback. It must be a
+// fixed zone rather than time.Local, because a caller that forgets to pass a
+// zone would otherwise reintroduce the deployment-dependent behaviour.
+func TestParseNilLocationIsUTC(t *testing.T) {
+	saved := time.Local
+	time.Local = time.FixedZone("test", 7*3600)
+	defer func() { time.Local = saved }()
+
+	sessions, err := Parse(strings.NewReader(sampleCSV), nil)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if want := "2026-02-19T04:54:00Z"; sessions[0].Date.UTC().Format(time.RFC3339) != want {
+		t.Errorf("first session = %s, want %s", sessions[0].Date.UTC().Format(time.RFC3339), want)
 	}
 }

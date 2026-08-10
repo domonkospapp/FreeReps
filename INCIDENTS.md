@@ -16,6 +16,77 @@ the fix was verified, this file does not claim it was.
 
 ---
 
+## 2026-08-10 — The Alpha Progression history was stored twice, offset by the Berlin UTC offset
+
+**Symptoms.** `get_strength_summary` reported 378 working sets and 171,869 kg of
+tonnage for January 2026 against 11 training days, and 22 `sessions` for the same
+month. `get_strength_intensity` and `get_strength_volume` carried the same
+inflation, and the RIR distribution was weighted toward the duplicated period.
+No tool output marked anything as duplicated; the numbers were merely twice what
+they should have been.
+
+Measured against the deployed database on 2026-08-10: 117 of 280 stored sessions
+existed twice, spanning 2025-03-18 to 2026-02-19 — the entire Alpha history up to
+that date, not a window within it. The two copies of a session were identical in
+`session_name` and in every set, warm-ups included; they differed only in
+`session_date`, by 3600 s for sessions in CET and 7200 s for sessions in CEST.
+
+**Root cause.** `parseSessionDate` in `server/internal/ingest/alpha/parser.go`
+read the export's session time with `time.ParseInLocation(layout, s, time.Local)`.
+The Alpha CSV carries a bare wall clock with no zone, so the instant it produced
+was a property of the host running the import:
+
+- an import running in `Europe/Berlin` read `2026-01-02 9:22` as `08:22Z`,
+- the deployed container has no `/etc/localtime` and no `TZ`, so Go's
+  `time.Local` is UTC there, and the same line read as `09:22Z`.
+
+`session_date` is part of `workout_sets_source_natural_key` (migration
+`000020_hevy.up.sql`), so the `ON CONFLICT DO NOTHING` in `InsertWorkoutSets`
+compared two different keys and inserted rather than skipped. The insert order in
+`workout_sets.id` shows it directly: ids 1–2936 hold the Berlin-read copy of all
+117 sessions, ids 2991–5926 the UTC-read copy of the same 117, written by the
+import logged at 2026-02-25 17:12 UTC (`import_logs` id 7, 2990 rows received,
+2990 inserted — nothing conflicted, because every key had moved).
+
+`time.Local` reached the parser through commit `39de7f1` (2026-02-21), which
+replaced `time.Parse` with `time.ParseInLocation` to fix a genuine bug: read as
+UTC, the wall clock was wrong by the local offset. The fix was correct in intent
+and wrong in mechanism — it made the timestamp depend on the environment instead
+of on a stated zone.
+
+Cross-checked against the `workouts` table, which holds Apple Health workouts
+with real zoned timestamps: on all 117 days the Berlin-read copy lands within
+−20 to +16 minutes of that day's `Traditional Strength Training` start, and the
+UTC-read copy 56 to 136 minutes after it. The earlier copy is the true one.
+
+**Fix.** Three commits:
+
+- The parser takes the zone as a parameter, supplied from
+  `ingest.session_timezone` (see [`DECISIONS.md`](DECISIONS.md), 2026-08-10).
+  Covered by `TestParseIsIndependentOfProcessTimezone` and, against a real
+  database, by `TestReimportUnderADifferentProcessTimezoneIsIdempotent`
+  (`-tags integration`).
+- Migration `000027_dedupe_alpha_sessions` deleted the later copy of every
+  session whose name and full set signature matched another copy of the same
+  session: 117 sessions, 2936 set rows, of which 2367 working sets.
+- `server/scripts/2026-08-10-alpha-utc-session-times.sql` shifted the 46
+  sessions imported after 2026-02-21 — written by the container in UTC, never
+  duplicated because no second import followed — onto the same Europe/Berlin
+  reading as the rest of the table.
+
+`sessions` in `get_strength_summary` counted distinct session start times, which
+is what it still does; the 22 for an 11-day January was the duplication showing
+through, not a counting error. The field is now documented as such and a
+`training_days` count sits beside it, because the two differ on any day holding
+more than one session and nothing said which was being reported.
+
+**Lesson.** A timestamp that is part of a natural key must be computed from the
+file and stated configuration only — never from the process environment, which
+differs between the machine that develops an importer and the container that
+runs it.
+
+---
+
 ## 2026-04-08 — Alpha Progression sets with "N+" notation were dropped or read as zero
 
 **Symptoms.** Strength training sets imported from Alpha Progression CSV were

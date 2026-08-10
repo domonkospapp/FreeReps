@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/claude/freereps/internal/ingest"
 	"github.com/claude/freereps/internal/models"
@@ -19,16 +20,23 @@ const SourceName = "Alpha Progression"
 type Provider struct {
 	db  *storage.DB
 	log *slog.Logger
+	loc *time.Location
 }
 
-// NewProvider creates a new Alpha Progression ingest provider.
-func NewProvider(db *storage.DB, log *slog.Logger) *Provider {
-	return &Provider{db: db, log: log}
+// NewProvider creates a new Alpha Progression ingest provider. loc is the
+// timezone the export's session times are read in; it comes from
+// ingest.session_timezone and must not vary between hosts, because
+// session_date is part of the row's natural key.
+func NewProvider(db *storage.DB, log *slog.Logger, loc *time.Location) *Provider {
+	if loc == nil {
+		loc = time.UTC
+	}
+	return &Provider{db: db, log: log, loc: loc}
 }
 
 // Ingest parses a CSV export and stores the workout set data.
 func (p *Provider) Ingest(ctx context.Context, r io.Reader, userID int) (*ingest.Result, error) {
-	sessions, err := Parse(r)
+	sessions, err := Parse(r, p.loc)
 	if err != nil {
 		return nil, fmt.Errorf("parsing CSV: %w", err)
 	}

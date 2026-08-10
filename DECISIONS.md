@@ -19,6 +19,53 @@ is as recorded there; where the record named no alternative, none is claimed.
 
 ---
 
+## 2026-08-10 — The Alpha session timezone is configuration, and the natural key stays at the instant
+
+**Decided:** 2026-08-10
+
+**Decision.** The zone the Alpha Progression export's session times are read in
+comes from `ingest.session_timezone` (`server/internal/config/config.go`,
+default `Europe/Berlin`), never from `time.Local`. Startup fails on an unknown
+zone name, on the empty string and on `"Local"` — the two spellings
+`time.LoadLocation` accepts as "whatever this host happens to be".
+
+Two sub-decisions that would otherwise be re-derived:
+
+- **The unique constraint keeps identifying a session by its instant.**
+  `workout_sets_source_natural_key` stays
+  `(user_id, source, session_date, exercise_number, set_number, is_warmup)`.
+  Widening it to the calendar day would have caught the duplication, and is
+  rejected: two genuine sessions on one day overlap in `exercise_number` and
+  `set_number`, so a day-level key silently drops the second session's sets —
+  the same class of loss as [`INCIDENTS.md`](INCIDENTS.md), 2026-04-08. The
+  instant is the right key; it just has to be computed deterministically.
+- **The zone database is compiled into the binary** via a blank
+  `time/tzdata` import in `internal/config`. The runtime image installs
+  `tzdata` today, so this changes nothing about the current deployment; it
+  removes the case where a base-image change turns a valid zone name into a
+  startup failure.
+
+**Reasoning.** The export carries a bare wall clock and nothing that identifies
+its zone, so some zone has to be supplied. Taking it from the process
+environment makes the stored instant a property of the host that ran the
+import: the same file produced 08:22Z on a machine in Europe/Berlin and 09:22Z
+in the deployed container, which carries no `/etc/localtime` and therefore runs
+in UTC. Because that instant is part of the row's natural key,
+`ON CONFLICT DO NOTHING` saw two different sessions and stored the full history
+twice.
+
+`Europe/Berlin` is the default rather than UTC because it is the zone the stored
+history was written in; a different default would move every future session
+relative to the sessions already stored, which is the failure this setting
+exists to prevent. An installation elsewhere sets the key.
+
+**Trigger to re-open.** A second user in another zone, which turns a server-wide
+setting into a per-user one; or Alpha Progression adding a zone or a UTC offset
+to its export, which would make the setting unnecessary for new files while the
+stored history still depends on it.
+
+---
+
 ## 2026-08-05 — Withings is read directly, and the Apple Health path stays
 
 **Decided:** 2026-08-05

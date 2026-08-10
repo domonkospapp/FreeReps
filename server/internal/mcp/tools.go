@@ -101,7 +101,7 @@ var toolListAvailableMetrics = mcp.NewTool("list_available_metrics",
 // used so far and sits alongside sleep, HRV and readiness.
 
 var toolGetStrengthSummary = mcp.NewTool("get_strength_summary",
-	mcp.WithDescription("FreeReps database: monthly/weekly aggregated workout and strength volume across all logging sources. Returns workout counts, duration, calories by type, plus strength set/rep/tonnage totals per period."),
+	mcp.WithDescription("FreeReps database: monthly/weekly aggregated workout and strength volume across all logging sources. Returns workout counts, duration, calories by type, plus strength set/rep/tonnage totals per period. In the strength block, 'sessions' counts distinct session start times and is the denominator of 'avg_sets_per_session'; 'training_days' counts calendar days on which anything was logged. The two differ only on a day holding more than one session."),
 	mcp.WithString("start", mcp.Description("Start date. Defaults to 6 months ago.")),
 	mcp.WithString("end", mcp.Description("End date. Defaults to now.")),
 	mcp.WithString("bucket", mcp.Description("Aggregation period. Defaults to '1 month'."), mcp.Enum("1 week", "1 month")),

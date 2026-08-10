@@ -109,7 +109,10 @@ func main() {
 
 	// Create providers
 	healthProvider := health.NewProvider(db, log)
-	alphaProvider := alpha.NewProvider(db, log)
+	// Logged because a changed zone silently relocates every session imported
+	// from here on, relative to the sessions already stored.
+	log.Info("alpha ingest ready", "session_timezone", cfg.Ingest.Location.String())
+	alphaProvider := alpha.NewProvider(db, log, cfg.Ingest.Location)
 
 	// Create server
 	server.Version = Version

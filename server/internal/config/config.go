@@ -7,6 +7,13 @@ import (
 	"strings"
 	"time"
 
+	// The zone database is compiled into the binary so that resolving
+	// ingest.session_timezone does not depend on the host carrying
+	// /usr/share/zoneinfo. Without it a runtime image built from scratch, or
+	// an alpine image that drops the tzdata package, would fail startup on a
+	// zone name that is perfectly valid.
+	_ "time/tzdata"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,6 +21,7 @@ type Config struct {
 	Server         ServerConfig    `yaml:"server"`
 	Database       DatabaseConfig  `yaml:"database"`
 	Tailscale      TailscaleConfig `yaml:"tailscale"`
+	Ingest         IngestConfig    `yaml:"ingest"`
 	Oura           OuraConfig      `yaml:"oura"`
 	Hevy           HevyConfig      `yaml:"hevy"`
 	Withings       WithingsConfig  `yaml:"withings"`
@@ -38,6 +46,21 @@ type TailscaleConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	Hostname string `yaml:"hostname"`
 	StateDir string `yaml:"state_dir"`
+}
+
+// IngestConfig holds settings for reading files whose timestamps carry no zone.
+type IngestConfig struct {
+	// SessionTimezone is the IANA zone the Alpha Progression CSV's wall-clock
+	// session times are read in. It must be an explicit configuration value
+	// rather than the process timezone: session_date is part of the unique key
+	// workout_sets_source_natural_key (migration 000020), so reading the same
+	// file in two zones inserts every session twice. That is the 2026-08-10
+	// entry in INCIDENTS.md.
+	SessionTimezone string `yaml:"session_timezone"`
+
+	// Location is SessionTimezone resolved by Load. Nothing outside this
+	// package sets it.
+	Location *time.Location `yaml:"-"`
 }
 
 // OuraConfig holds server-wide Oura sync settings. Per-user credentials
@@ -88,13 +111,20 @@ func (d DatabaseConfig) DSN() string {
 //	FREEREPS_SERVER_HOST, FREEREPS_SERVER_PORT,
 //	FREEREPS_DB_HOST, FREEREPS_DB_PORT, FREEREPS_DB_NAME,
 //	FREEREPS_DB_USER, FREEREPS_DB_PASSWORD, FREEREPS_DB_SSLMODE,
-//	FREEREPS_TS_ENABLED, FREEREPS_TS_HOSTNAME, FREEREPS_TS_STATE_DIR
+//	FREEREPS_TS_ENABLED, FREEREPS_TS_HOSTNAME, FREEREPS_TS_STATE_DIR,
+//	FREEREPS_INGEST_TIMEZONE
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Tailscale: TailscaleConfig{
 			Enabled:  true,
 			Hostname: "freereps",
 			StateDir: "tsnet-state",
+		},
+		// The stored history was written in Europe/Berlin, so that is the
+		// default an unset key resolves to; a different value moves every
+		// future Alpha session relative to the sessions already stored.
+		Ingest: IngestConfig{
+			SessionTimezone: "Europe/Berlin",
 		},
 		Oura: OuraConfig{
 			RawSyncInterval: "30m",
@@ -122,6 +152,28 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyEnvOverrides(cfg)
+
+	// Resolve the ingest timezone. An unknown zone name fails startup instead
+	// of falling back to UTC: a silent fallback writes session timestamps that
+	// differ from every session already stored, which is how the duplicate
+	// import in INCIDENTS.md 2026-08-10 happened in the first place.
+	//
+	// Two spellings are rejected for the same reason. time.LoadLocation reads
+	// "" as UTC and "Local" as the process timezone, so either one turns a
+	// blank or copy-pasted config key into the deployment-dependent behaviour
+	// this setting exists to remove.
+	switch cfg.Ingest.SessionTimezone {
+	case "":
+		return nil, fmt.Errorf("ingest.session_timezone must name an IANA zone, e.g. Europe/Berlin")
+	case "Local":
+		return nil, fmt.Errorf(`ingest.session_timezone must name an IANA zone, not "Local": ` +
+			"the zone has to be the same on every host that imports")
+	}
+	loc, err := time.LoadLocation(cfg.Ingest.SessionTimezone)
+	if err != nil {
+		return nil, fmt.Errorf("loading ingest.session_timezone %q: %w", cfg.Ingest.SessionTimezone, err)
+	}
+	cfg.Ingest.Location = loc
 
 	// Parse Oura sync interval.
 	if cfg.Oura.RawSyncInterval != "" {
@@ -194,6 +246,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("FREEREPS_TS_STATE_DIR"); v != "" {
 		cfg.Tailscale.StateDir = v
+	}
+	if v := os.Getenv("FREEREPS_INGEST_TIMEZONE"); v != "" {
+		cfg.Ingest.SessionTimezone = v
 	}
 }
 

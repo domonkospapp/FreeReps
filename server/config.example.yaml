@@ -15,6 +15,14 @@ tailscale:
   hostname: "freereps"
   state_dir: "tsnet-state"
 
+ingest:
+  # The zone the Alpha Progression CSV's session times are read in. The export
+  # carries a bare wall clock with no zone, and the resulting instant is part of
+  # a workout_sets row's natural key, so this value must be the same on every
+  # host that imports — reading one export in two zones stores every session
+  # twice. Startup fails on an unknown zone, on "" and on "Local".
+  session_timezone: "Europe/Berlin"
+
 oura:
   sync_interval: "30m"   # how often to poll Oura API (per-user creds configured in Settings UI)
   backfill_days: 90      # days of history to fetch on first sync

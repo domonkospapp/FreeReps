@@ -34,7 +34,15 @@ var (
 
 // Parse reads an Alpha Progression CSV export and returns parsed sessions.
 // Supports both semicolon-delimited and tab-delimited variants.
-func Parse(r io.Reader) ([]models.AlphaSession, error) {
+//
+// loc is the timezone the session times in the file are read in. The export
+// carries a bare wall clock with no zone, so the caller has to supply one; a
+// nil loc is read as UTC. Passing time.Local here is a defect, not a
+// convenience — see parseSessionDate.
+func Parse(r io.Reader, loc *time.Location) ([]models.AlphaSession, error) {
+	if loc == nil {
+		loc = time.UTC
+	}
 	scanner := bufio.NewScanner(r)
 	var sessions []models.AlphaSession
 	var current *models.AlphaSession
@@ -71,7 +79,7 @@ func Parse(r io.Reader) ([]models.AlphaSession, error) {
 				}
 				sessions = append(sessions, *current)
 			}
-			date, err := parseSessionDate(m[2])
+			date, err := parseSessionDate(m[2], loc)
 			if err != nil {
 				return nil, fmt.Errorf("parsing session date %q: %w", m[2], err)
 			}
@@ -149,11 +157,19 @@ func Parse(r io.Reader) ([]models.AlphaSession, error) {
 	return sessions, scanner.Err()
 }
 
-// parseSessionDate parses "2026-02-19 4:54" into a time.Time.
-func parseSessionDate(s string) (time.Time, error) {
+// parseSessionDate parses "2026-02-19 4:54" into a time.Time in loc.
+//
+// loc is passed in rather than taken from time.Local because the resulting
+// instant lands in session_date, which is part of the unique key
+// workout_sets_source_natural_key. Under time.Local the same export produced
+// one instant on a developer machine in Europe/Berlin and another in the
+// deployed container, where /etc/localtime is absent and time.Local is UTC, so
+// the constraint saw two distinct sessions and stored the whole history twice
+// (INCIDENTS.md, 2026-08-10).
+func parseSessionDate(s string, loc *time.Location) (time.Time, error) {
 	// Try both formats: "2026-02-19 4:54" and "2026-02-19 16:54"
 	for _, layout := range []string{"2006-01-02 15:04", "2006-01-02 3:04"} {
-		t, err := time.ParseInLocation(layout, s, time.Local)
+		t, err := time.ParseInLocation(layout, s, loc)
 		if err == nil {
 			return t, nil
 		}

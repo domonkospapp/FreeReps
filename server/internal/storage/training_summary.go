@@ -16,11 +16,25 @@ type WorkoutTypePeriodSummary struct {
 }
 
 // StrengthVolumeSummary holds aggregated strength training stats for a period.
+//
+// Sessions and TrainingDays differ whenever a day holds more than one session,
+// and only then. Sessions counts distinct session start times, which is the
+// denominator AvgSetsPerSession divides by; TrainingDays counts calendar days
+// on which anything was logged, which is what "how often did I train" means.
+// The two were conflated while the database held every session twice — Sessions
+// read 22 for a January with 11 training days, and nothing in the output said
+// which of the two it was reporting (INCIDENTS.md, 2026-08-10).
 type StrengthVolumeSummary struct {
-	WorkingSets    int     `json:"working_sets"`
-	TotalReps      int     `json:"total_reps"`
-	TonnageKg      float64 `json:"tonnage_kg"`
-	Sessions       int     `json:"sessions"`
+	WorkingSets int     `json:"working_sets"`
+	TotalReps   int     `json:"total_reps"`
+	TonnageKg   float64 `json:"tonnage_kg"`
+
+	// Sessions counts distinct session start times in the period.
+	Sessions int `json:"sessions"`
+
+	// TrainingDays counts distinct calendar days in the period, in UTC.
+	TrainingDays int `json:"training_days"`
+
 	AvgSetsPerSession float64 `json:"avg_sets_per_session"`
 }
 
@@ -78,7 +92,8 @@ func (db *DB) GetTrainingSummary(ctx context.Context, start, end time.Time, buck
 		        COUNT(*) FILTER (WHERE NOT is_warmup)::int AS working_sets,
 		        COALESCE(SUM(reps) FILTER (WHERE NOT is_warmup), 0)::int AS total_reps,
 		        COALESCE(SUM(weight_kg * reps) FILTER (WHERE NOT is_warmup), 0) AS tonnage,
-		        COUNT(DISTINCT session_date)::int AS sessions
+		        COUNT(DISTINCT session_date)::int AS sessions,
+		        COUNT(DISTINCT (session_date AT TIME ZONE 'UTC')::date)::int AS training_days
 		 FROM workout_sets
 		 WHERE session_date >= $2 AND session_date < $3 AND user_id = $4
 		 GROUP BY period
@@ -92,7 +107,8 @@ func (db *DB) GetTrainingSummary(ctx context.Context, start, end time.Time, buck
 	for strengthRows.Next() {
 		var periodTime time.Time
 		var sv StrengthVolumeSummary
-		if err := strengthRows.Scan(&periodTime, &sv.WorkingSets, &sv.TotalReps, &sv.TonnageKg, &sv.Sessions); err != nil {
+		if err := strengthRows.Scan(&periodTime, &sv.WorkingSets, &sv.TotalReps, &sv.TonnageKg,
+			&sv.Sessions, &sv.TrainingDays); err != nil {
 			return nil, fmt.Errorf("scanning strength summary: %w", err)
 		}
 		if sv.Sessions > 0 {
