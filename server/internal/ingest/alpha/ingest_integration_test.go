@@ -14,6 +14,7 @@ package alpha
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -172,5 +173,62 @@ func TestReimportUnderADifferentProcessTimezoneIsIdempotent(t *testing.T) {
 	rows, sessions := countSets(t, db)
 	if rows != 6 || sessions != 2 {
 		t.Errorf("after three imports: %d rows in %d sessions, want 6 rows in 2 sessions", rows, sessions)
+	}
+}
+
+// generateCSV renders an export with sessions sessions of setsPerSession
+// working sets each, in the shape Parse expects.
+func generateCSV(sessions, setsPerSession int) string {
+	var b strings.Builder
+	for s := 0; s < sessions; s++ {
+		// One session every other day, starting 2025-01-01, all at 07:15.
+		day := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, s*2)
+		fmt.Fprintf(&b, "\"Full Body · Session %d\";\"%s 7:15 h\";\"1:00 hr\"\n", s, day.Format("2006-01-02"))
+		fmt.Fprintf(&b, "\"1. Hack Squats · Machine · 8 reps\"\n#;KG;REPS;RIR\n")
+		for n := 1; n <= setsPerSession; n++ {
+			fmt.Fprintf(&b, "%d;100;8;1\n", n)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// TestImportLargerThanOneStatement covers an export whose row count exceeds the
+// 65535-parameter ceiling of a single INSERT. A full Alpha history is around
+// 4000 rows against 26 columns, so before InsertWorkoutSets batched, importing
+// one failed outright with "extended protocol limited to 65535 parameters" —
+// and an import that cannot run at all cannot be idempotent either.
+func TestImportLargerThanOneStatement(t *testing.T) {
+	db := testDB(t)
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatalf("loading Europe/Berlin: %v", err)
+	}
+	p := NewProvider(db, slog.New(slog.NewTextHandler(io.Discard, nil)), loc)
+	ctx := context.Background()
+
+	const sessions, setsPerSession = 150, 20 // 3000 rows, well past 65535/26
+	csv := generateCSV(sessions, setsPerSession)
+
+	first, err := p.Ingest(ctx, strings.NewReader(csv), 1)
+	if err != nil {
+		t.Fatalf("first import: %v", err)
+	}
+	if want := int64(sessions * setsPerSession); first.SetsInserted != want {
+		t.Fatalf("first import inserted %d rows, want %d", first.SetsInserted, want)
+	}
+
+	second, err := p.Ingest(ctx, strings.NewReader(csv), 1)
+	if err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+	if second.SetsInserted != 0 {
+		t.Errorf("second import inserted %d rows, want 0", second.SetsInserted)
+	}
+
+	rows, storedSessions := countSets(t, db)
+	if rows != sessions*setsPerSession || storedSessions != sessions {
+		t.Errorf("after two imports: %d rows in %d sessions, want %d rows in %d sessions",
+			rows, storedSessions, sessions*setsPerSession, sessions)
 	}
 }

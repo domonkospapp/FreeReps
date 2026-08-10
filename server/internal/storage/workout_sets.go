@@ -46,8 +46,30 @@ func (db *DB) DeleteWorkoutSetsByExternalID(ctx context.Context, userID int, sou
 	return tag.RowsAffected(), nil
 }
 
+// insertWorkoutSetsBatchSize caps how many rows go into one INSERT. The
+// extended protocol allows 65535 parameters per statement and a row costs
+// len(workoutSetColumns) of them, so a full Alpha Progression export — around
+// 4000 rows against 26 columns — exceeds the limit in a single statement and
+// the whole import fails with "extended protocol limited to 65535 parameters".
+// Same failure that f55a5a3 fixed for workout_routes; workout_sets crossed the
+// limit later, when migration 000020 widened the row for Hevy.
+const insertWorkoutSetsBatchSize = 2000
+
 // InsertWorkoutSets batch-inserts set data. Returns count inserted.
 func (db *DB) InsertWorkoutSets(ctx context.Context, rows []models.WorkoutSetRow) (int64, error) {
+	var total int64
+	for start := 0; start < len(rows); start += insertWorkoutSetsBatchSize {
+		end := min(start+insertWorkoutSetsBatchSize, len(rows))
+		n, err := db.insertWorkoutSetBatch(ctx, rows[start:end])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (db *DB) insertWorkoutSetBatch(ctx context.Context, rows []models.WorkoutSetRow) (int64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
