@@ -1037,11 +1037,17 @@ final class SyncService: ObservableObject {
         try await healthKit.streamWorkouts(from: since, until: until) { [self] workouts in
             for workout in workouts {
                 let routes: [HKWorkoutRoute]
-                do { routes = try await healthKit.fetchWorkoutRoutes(for: workout) } catch { continue }
+                do { routes = try await healthKit.fetchWorkoutRoutes(for: workout) } catch {
+                    print("Workout routes fetch failed for \(workout.uuid): \(error.localizedDescription); skipping")
+                    continue
+                }
                 for route in routes {
                     try Task.checkCancellation()
                     let locations: [CLLocation]
-                    do { locations = try await healthKit.fetchRouteLocations(for: route) } catch { continue }
+                    do { locations = try await healthKit.fetchRouteLocations(for: route) } catch {
+                        print("Route locations failed for workout \(workout.uuid): \(error.localizedDescription); skipping")
+                        continue
+                    }
                     guard !locations.isEmpty else { continue }
 
                     let routePoints = locations.map { loc in
@@ -1068,8 +1074,14 @@ final class SyncService: ObservableObject {
                         route: routePoints
                     )
                     let payload = FreeRepsPayload(data: FreeRepsData(workouts: [hbWorkout]))
-                    _ = try await ingest(payload)
-                    total += 1
+                    // Isolate ingest failures (timeouts on large GPS tracks) so one bad
+                    // route cannot fail the entire Workout Routes category.
+                    do {
+                        _ = try await ingest(payload)
+                        total += 1
+                    } catch {
+                        print("Workout route ingest failed for \(workout.uuid) (\(routePoints.count) points): \(error.localizedDescription); continuing")
+                    }
                 }
             }
         }
