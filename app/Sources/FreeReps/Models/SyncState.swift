@@ -134,6 +134,18 @@ class SyncState: ObservableObject {
         // it is set directly from actual DB COUNT(*) queries in refreshRecordCounts().
     }
 
+    /// If every category already shows completed but the sticky baseline flag is still
+    /// false (e.g. an earlier full sync recorded failures that were later re-synced),
+    /// clear the "No Complete Baseline" banner without forcing another full sync.
+    func healBaselineIfAllCategoriesCompleted() {
+        guard !hasCompletedFullSync else { return }
+        guard !categories.isEmpty else { return }
+        guard categories.allSatisfy({ $0.status == .completed }) else { return }
+        hasCompletedFullSync = true
+        errorMessage = nil
+        persist()
+    }
+
     // MARK: - Persistence
 
     private static let userDefaultsKey = "com.freereps.syncSnapshot"

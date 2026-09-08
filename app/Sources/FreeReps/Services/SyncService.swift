@@ -526,16 +526,28 @@ final class SyncService: ObservableObject {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                // Individual sparse category failures are caught within the task group
+                // Mark any still-syncing sparse categories as failed so the UI matches
+                // failedCategories (previously they could stay .syncing while the baseline
+                // flag stayed false — green-looking cards + sticky "No Complete Baseline").
                 failedCategories.append("Sparse categories")
+                for (catID, _) in sparseSpecials {
+                    if case .syncing = syncState.categories.first(where: { $0.id == catID })?.status {
+                        syncState.updateCategory(catID, status: .failed(error.localizedDescription))
+                    }
+                }
                 print("Sparse categories failed: \(error.localizedDescription)")
             }
             syncState.persist()
 
-            // Mark complete even if some categories failed — successful ones keep their progress.
-            syncState.hasCompletedFullSync = failedCategories.isEmpty
+            // Baseline is complete when nothing failed — or when every category card is
+            // .completed (covers the case where failedCategories was polluted while the
+            // UI still shows all green after retries / sparse edge cases).
+            let allCategoriesCompleted = !syncState.categories.isEmpty
+                && syncState.categories.allSatisfy { $0.status == .completed }
+            syncState.hasCompletedFullSync = failedCategories.isEmpty || allCategoriesCompleted
             syncState.lastSyncDate = Date()
-            if failedCategories.isEmpty {
+            if syncState.hasCompletedFullSync {
+                syncState.errorMessage = nil
                 syncState.currentOperation = "Backfill complete"
             } else {
                 syncState.errorMessage = "\(failedCategories.count) category(ies) failed: \(failedCategories.joined(separator: ", ")). Successfully synced categories are saved."

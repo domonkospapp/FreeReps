@@ -109,6 +109,7 @@ struct SyncDashboardView: View {
                 vm.refreshRecordCounts()
                 vm.checkPrerequisites()
                 vm.refreshLatestHealthKitDates()
+                vm.syncState.healBaselineIfAllCategoriesCompleted()
             }
             .onChange(of: vm.isFullSyncRunning) { _, isRunning in
                 UIApplication.shared.isIdleTimerDisabled = isRunning && keepScreenOnDuringSync
